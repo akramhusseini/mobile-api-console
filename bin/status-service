@@ -1,0 +1,22 @@
+#!/usr/bin/env zsh
+set -euo pipefail
+
+label="local.mobile-api-console.daemon"
+domain="gui/$(id -u)"
+
+if launchctl print "$domain/$label" >/dev/null 2>&1; then
+  pid="$(launchctl print "$domain/$label" 2>/dev/null | awk -F '= ' '/pid = / { print $2; exit }')"
+  if [[ -n "${pid:-}" ]]; then
+    echo "$label is running with pid $pid"
+  else
+    echo "$label is loaded but not running"
+  fi
+else
+  echo "$label is not loaded"
+fi
+
+if lsof -nP -iTCP:3957 -sTCP:LISTEN >/dev/null 2>&1; then
+  echo "Port 3957 is listening"
+else
+  echo "Port 3957 is not listening"
+fi

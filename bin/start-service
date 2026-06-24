@@ -1,0 +1,21 @@
+#!/usr/bin/env zsh
+set -euo pipefail
+
+label="local.mobile-api-console.daemon"
+domain="gui/$(id -u)"
+plist="$HOME/Library/LaunchAgents/$label.plist"
+url="http://localhost:3957"
+
+if [[ ! -f "$plist" ]]; then
+  echo "Missing LaunchAgent plist: $plist" >&2
+  exit 1
+fi
+
+if ! launchctl print "$domain/$label" >/dev/null 2>&1; then
+  launchctl bootstrap "$domain" "$plist"
+fi
+
+launchctl kickstart -k "$domain/$label"
+
+echo "Started $label"
+echo "$url"

@@ -1,0 +1,13 @@
+#!/usr/bin/env zsh
+set -euo pipefail
+
+label="local.mobile-api-console.daemon"
+domain="gui/$(id -u)"
+plist="$HOME/Library/LaunchAgents/$label.plist"
+
+if launchctl print "$domain/$label" >/dev/null 2>&1; then
+  launchctl bootout "$domain" "$plist" >/dev/null 2>&1 || true
+fi
+
+rm -f "$plist"
+echo "Uninstalled $label"

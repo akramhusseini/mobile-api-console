@@ -1,0 +1,16 @@
+#!/usr/bin/env zsh
+set -euo pipefail
+
+label="local.mobile-api-console.daemon"
+domain="gui/$(id -u)"
+
+if launchctl print "$domain/$label" >/dev/null 2>&1; then
+  launchctl kill TERM "$domain/$label" >/dev/null 2>&1 || true
+  sleep 1
+
+  if launchctl print "$domain/$label" 2>/dev/null | grep -q 'pid = '; then
+    launchctl kill KILL "$domain/$label" >/dev/null 2>&1 || true
+  fi
+fi
+
+echo "Stopped $label"

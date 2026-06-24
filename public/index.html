@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Mobile API Console</title>
+    <link rel="stylesheet" href="/styles.css">
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="topbar">
+        <div class="title-block">
+          <h1>Mobile API Console</h1>
+          <div class="source-line">
+            <span id="sourceDot" class="status-dot"></span>
+            <span id="sourceText">Connecting...</span>
+          </div>
+        </div>
+        <div class="top-actions">
+          <button id="restartButton" class="icon-button" title="Restart stream" aria-label="Restart stream">Restart</button>
+          <button id="clearButton" class="danger-button" title="Clear visible API calls" aria-label="Clear visible API calls">Clear</button>
+        </div>
+      </header>
+
+      <section class="toolbar" aria-label="Filters">
+        <select id="sessionPicker" class="select-input session-picker" aria-label="Active session"></select>
+        <input id="searchInput" class="search-input" type="search" placeholder="Search URL, status, headers, body">
+        <select id="stateFilter" class="select-input" aria-label="Status filter">
+          <option value="all">All states</option>
+          <option value="error">Errors</option>
+          <option value="pending">Pending</option>
+          <option value="success">Success</option>
+        </select>
+        <select id="methodFilter" class="select-input" aria-label="Method filter">
+          <option value="all">All methods</option>
+        </select>
+        <label class="toggle">
+          <input id="autoSelectToggle" type="checkbox" checked>
+          <span>Follow latest</span>
+        </label>
+      </section>
+
+      <main class="workspace">
+        <aside class="request-list">
+          <div class="list-meta">
+            <span id="countText">0 calls</span>
+            <span id="lastUpdateText">Waiting</span>
+          </div>
+          <div id="requestList" class="request-items"></div>
+        </aside>
+
+        <section class="detail-pane">
+          <div id="emptyState" class="empty-state">
+            <h2>No API calls yet</h2>
+            <p>Run the iOS app in a booted simulator and trigger an API request.</p>
+          </div>
+
+          <article id="detailContent" class="detail-content hidden">
+            <div class="detail-header">
+              <div>
+                <div class="detail-kicker" id="detailHost"></div>
+                <h2 id="detailTitle"></h2>
+              </div>
+              <div class="detail-badges">
+                <span id="detailMethod" class="method-badge"></span>
+                <span id="detailStatus" class="status-badge"></span>
+              </div>
+            </div>
+
+            <div class="tabbar" role="tablist" aria-label="Details">
+              <button class="tab-button active" data-tab="response" role="tab">Response</button>
+              <button class="tab-button" data-tab="request" role="tab">Request</button>
+              <button class="tab-button" data-tab="curl" role="tab">cURL</button>
+              <button class="tab-button" data-tab="errors" role="tab">Errors</button>
+              <button class="tab-button" data-tab="raw" role="tab">Raw</button>
+              <button id="copyButton" class="copy-button" title="Copy current tab" aria-label="Copy current tab">Copy</button>
+            </div>
+
+            <pre id="detailPre" class="detail-pre"></pre>
+            <div id="detailResponse" class="detail-response hidden">
+              <div class="response-summary">
+                <div class="response-row">
+                  <div class="response-field response-field--status">
+                    <span class="field-label">Status</span>
+                    <span class="field-value" id="responseStatusValue"></span>
+                  </div>
+                  <div class="response-field response-field--url">
+                    <span class="field-label">URL</span>
+                    <span class="field-value" id="responseUrlValue"></span>
+                  </div>
+                </div>
+                <div class="response-field response-field--headers">
+                  <span class="field-label">Headers</span>
+                  <div class="field-value" id="responseHeadersValue"></div>
+                </div>
+              </div>
+              <div class="response-body-wrap">
+                <div class="response-body-header">
+                  <span class="response-body-title">Body · JSON</span>
+                  <button id="copyBodyButton" class="copy-button copy-button--inline" title="Copy response body" aria-label="Copy response body">Copy</button>
+                </div>
+                <pre id="responseBody" class="response-body"></pre>
+              </div>
+            </div>
+          </article>
+        </section>
+      </main>
+    </div>
+
+    <script src="/app.js"></script>
+  </body>
+</html>

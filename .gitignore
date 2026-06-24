@@ -1,0 +1,14 @@
+node_modules/
+npm-debug.log*
+.DS_Store
+*.log
+.env
+.env.local
+.idea/
+.vscode/
+
+# Local SQLite database (default) plus WAL/shm sidecars
+data/
+*.db
+*.db-wal
+*.db-shm

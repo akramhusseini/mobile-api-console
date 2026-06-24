@@ -2,7 +2,7 @@
   "name": "mobile-api-console",
   "version": "0.1.0",
   "private": true,
-  "description": "Live mobile API console for iOS Simulator logs.",
+  "description": "Live mobile API console for mobile simulator and device logs.",
   "license": "MIT",
   "type": "commonjs",
   "bin": {

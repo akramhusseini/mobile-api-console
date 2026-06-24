@@ -44,6 +44,18 @@ turn them into issues or milestones.
 Next planned work: keep every available real source recording independently,
 even when the browser is closed or the UI is looking at another platform.
 
+- [ ] Keep the console repo directory-agnostic. It must not require or hardcode
+  the iOS or Android app checkout path; local app paths are only development
+  references.
+- [ ] Drive platform availability from `xcrun`, `adb`, attached devices,
+  booted simulators, CLI flags, environment variables, and
+  `~/.mobile-api-console.json`, not from the mobile app source directory.
+- [ ] Support iOS-only environments by starting iOS capture and presenting a
+  single iOS-focused view/history.
+- [ ] Support Android-only environments by starting Android capture and
+  presenting a single Android-focused view/history.
+- [ ] Support environments with both platforms by recording both continuously
+  and letting the user choose which platform's live stream and history to view.
 - [ ] Refactor `SourceManager` from one `{source, parser, store}` to a
   source-keyed map, for example iOS simulator plus each Android device serial.
 - [ ] Start every available real source on server startup: iOS when a simulator
@@ -54,6 +66,8 @@ even when the browser is closed or the UI is looking at another platform.
   correct source session instead of one global `EventStore.currentSessionId`.
 - [ ] Change the dropdown into a view selector so switching views does not call
   `source.stop()` on the previous platform.
+- [ ] Filter the session picker/history by selected platform while still
+  preserving access to older sessions from all platforms.
 - [ ] Include source identity in SSE updates so the browser can render only the
   selected live source while still updating session counts in the background.
 - [ ] Add a small enable/disable control for noisy or battery-sensitive

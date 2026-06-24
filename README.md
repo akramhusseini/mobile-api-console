@@ -63,6 +63,9 @@ when the browser is closed, but the non-selected source is stopped. For example,
 while iOS is selected, Android `adb logcat` is not running, so new Android API
 logs during that time are not stored. The next planned change is to keep iOS
 and Android sources running in parallel and make the dropdown a view selector.
+That next version should adapt automatically: iOS-only machines record iOS,
+Android-only machines record Android, and machines with both available record
+both while the user selects which platform history to view.
 
 ### Install Node.js on macOS
 
@@ -91,6 +94,11 @@ git clone <repo-url> mobile-api-console
 cd mobile-api-console
 npm install
 ```
+
+The console can live anywhere on disk. It does not inspect, import, or assume
+the path of your iOS or Android app repository. App-side setup happens inside
+the mobile app project, while this console only reads the emitted OSLog or
+Logcat output through `xcrun` / `adb` and your local config.
 
 The only runtime dependency is [`better-sqlite3`](https://github.com/WiseLibs/better-sqlite3), used to persist sessions and events. On macOS with a recent Node version it installs from a prebuilt binary, so there's no compile step in practice.
 

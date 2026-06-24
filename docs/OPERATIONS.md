@@ -15,6 +15,12 @@ iteration, or when running on a non-mac box. Both modes share the same
 config (`~/.mobile-api-console.json`), CLI flags, env vars, and SQLite
 database.
 
+The console checkout can live anywhere. The LaunchAgent `WorkingDirectory`
+should point to the console repo, not to the iOS or Android app repo. Mobile
+app repositories can live in any directory because the console only depends on
+the debug log output exposed by `xcrun` and/or `adb`, plus the bundle id,
+subsystem/category, Logcat tag, or device serial values in config.
+
 When the LaunchAgent's plist changes (e.g. you add `ANDROID_HOME` or move
 the working directory), reload the service so launchd re-reads it:
 
@@ -39,6 +45,14 @@ The next planned architecture change is always-on multi-source capture: run
 each available platform source continuously, keep one open session per source,
 and let the UI dropdown choose which live session to view instead of which
 source process to run.
+
+Expected platform adaptation for that change:
+
+- If only iOS is available, record iOS and show iOS sessions/history.
+- If only Android is available, record Android and show Android
+  sessions/history.
+- If both are available, record both continuously and use the platform selector
+  to choose which live stream and history are visible.
 
 ## Database Location
 

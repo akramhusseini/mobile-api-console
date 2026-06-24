@@ -9,6 +9,11 @@ If you'd rather paste a prompt to an AI coding assistant and have it do the
 wiring, jump to [Agent-neutral setup prompt](#agent-neutral-setup-prompt) at
 the bottom of this file.
 
+The mobile app repository can live anywhere on disk. These steps are applied
+inside the app repo, but the console itself does not need that path and should
+not be configured with local checkout directories. It only needs the emitted
+OSLog / Logcat lines and the matching identifiers in `~/.mobile-api-console.json`.
+
 - [Overview](#overview)
 - [iOS setup](#ios-setup)
 - [Android setup](#android-setup)

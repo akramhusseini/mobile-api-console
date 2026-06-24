@@ -13,10 +13,10 @@ Electron wrapper and no frontend build step. The only runtime package is
 
 ## Features
 
-- Live stream from the selected source: the booted iOS Simulator, an attached
-  Android emulator/device, or demo mode. Sources are auto-detected on startup
-  and the header dropdown can switch the active capture source when more than
-  one is available.
+- Live stream from available sources: the booted iOS Simulator, attached
+  Android emulator/device, or demo mode. Sources are auto-detected on startup;
+  when both iOS and Android are available, both record continuously and the
+  header dropdown selects which platform history to view.
 - Per-call view: request URL/method/headers/body, a ready-to-run cURL command,
   response status/headers/body, raw log lines, and any errors.
 - Search and filter by URL, status, method.
@@ -24,10 +24,9 @@ Electron wrapper and no frontend build step. The only runtime package is
 - SQLite-backed session history so recent captures remain available after a
   restart. Each session is tagged with the platform (`ios-simulator`,
   `android-emulator`, or `android-device`).
-- Current limitation: source switching changes which log process is running.
-  Already-captured sessions stay in SQLite, but new logs from the unselected
-  platform are not captured until you switch back. Always-on parallel capture is
-  the next planned architecture step.
+- Adaptive capture: iOS-only machines record iOS, Android-only machines record
+  Android, machines with both available record both, and machines with neither
+  fall back to Demo.
 - Optional macOS LaunchAgent so the console runs in the background and is
   always available at `http://localhost:3957`.
 - Per-developer config via `~/.mobile-api-console.json` so real bundle ids,
@@ -53,19 +52,11 @@ Electron wrapper and no frontend build step. The only runtime package is
     `PATH` or `ANDROID_HOME` / `ANDROID_SDK_ROOT` exported, and an emulator or
     USB-debuggable device attached.
 
-On startup the console probes both `xcrun` and `adb`. The header dropdown
-shows whichever platforms are usable; if only one is installed the dropdown
-just locks to that source. Demo mode is always available.
-
-Important current behavior: the dropdown switches the active capture source,
-not just the visible view. The selected source keeps recording into SQLite even
-when the browser is closed, but the non-selected source is stopped. For example,
-while iOS is selected, Android `adb logcat` is not running, so new Android API
-logs during that time are not stored. The next planned change is to keep iOS
-and Android sources running in parallel and make the dropdown a view selector.
-That next version should adapt automatically: iOS-only machines record iOS,
-Android-only machines record Android, and machines with both available record
-both while the user selects which platform history to view.
+On startup the console probes both `xcrun` and `adb`. If only one platform is
+usable, the UI locks to that platform's live history. If both iOS and Android
+are usable, the server starts both log streams and writes both to SQLite while
+the dropdown only selects which platform is visible. Demo mode is always
+available as a fallback.
 
 ### Install Node.js on macOS
 
@@ -124,8 +115,8 @@ That document covers:
 - iOS via OSLog (`subsystem` + `category` of your choice).
 - Android via Logcat (tag `API_CURL` by default).
 - A copy-paste **agent-neutral setup prompt** at the bottom that you can hand
-  to Claude Code, Codex, Cursor, Antigravity, or any other coding assistant
-  inside your mobile-app repo so it does the wiring for you.
+  to any coding assistant inside your mobile-app repo so it does the wiring
+  for you.
 
 ### TL;DR — the wire format
 
@@ -386,12 +377,11 @@ tail -f ~/Library/Logs/mobile-api-console.out.log
 
 ### 4. Quick switching while the service runs
 
-The header dropdown in the UI swaps the active source live — no need to restart
-the service when you move between the iOS Simulator, an Android emulator, and
-demo mode. Today that swap stops the previous source and starts the selected
-one; existing sessions remain available, but new logs from the previous
-platform are not captured while it is unselected. The chosen source is also
-exposed via:
+The header dropdown in the UI selects the visible platform live — no need to
+restart the service when you move between the iOS Simulator, an Android
+emulator, and demo mode. When multiple real sources are available, each keeps
+recording into its own SQLite session while you switch views. The selected
+view is also exposed via:
 
 ```sh
 curl http://localhost:3957/api/sources                              # current + available
@@ -409,8 +399,8 @@ mobile-api-console/
 ├── src/
 │   ├── config.js           # CLI / env / ~/.mobile-api-console.json resolution
 │   ├── platform.js         # xcrun + adb detection
-│   ├── sourceManager.js    # owns the selected live source + parser
-│   ├── eventStore.js       # session-scoped event store with SSE notifications
+│   ├── sourceManager.js    # owns live source recorders + parsers
+│   ├── eventStore.js       # source/session-scoped event store with SSE notifications
 │   ├── sseHub.js           # Server-Sent Events hub
 │   ├── logSource/          # SimulatorLogStream, AdbLogcatStream, DemoLogSource
 │   └── parsers/            # mobileNetworkParser (iOS) + androidApiCurlParser

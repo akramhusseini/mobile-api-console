@@ -45,10 +45,9 @@ add fields without breaking the parser as long as you don't change the
 markers.
 
 Current console behavior: iOS and Android emitters can both be installed in
-their apps, but the console records only the selected source at a time. The
-service keeps that selected source recording even when the browser is closed;
-switching the dropdown to another source stops the previous source until you
-switch back. Always-on parallel recording for both platforms is planned next.
+their apps. If only one platform is available, the console records that
+platform. If both are available, the service records both continuously while
+the dropdown selects which platform history is visible.
 
 ---
 
@@ -536,9 +535,8 @@ populate.
 
 ## Agent-neutral setup prompt
 
-Copy the block below into Claude Code, Codex, Cursor, Antigravity, or any
-other coding assistant once you're inside the mobile-app repo. It's
-self-contained — the agent does not need to read this file.
+Copy the block below into any coding assistant once you're inside the mobile-app
+repo. It's self-contained — the assistant does not need to read this file.
 
 > ```
 > You're going to wire a mobile app into the Mobile API Console — a local
@@ -627,6 +625,6 @@ self-contained — the agent does not need to read this file.
 > logging — add alongside.
 > ```
 
-After the agent finishes, drop the values it reports into
+After the assistant finishes, drop the values it reports into
 `~/.mobile-api-console.json` (see the main [README](../README.md#per-developer-config-file-mobile-api-consolejson))
 and you're done.

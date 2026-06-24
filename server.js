@@ -33,16 +33,7 @@ async function main() {
   sourceManager = new SourceManager({ config });
   await sourceManager.detect();
 
-  const initialKind = sourceManager.resolveInitialKind();
-  const initialOpts = sourceManager.optsForKind(initialKind);
-  const initialMetadata = sourceManager.kindToSessionMetadata(initialKind, initialOpts);
-
-  store = new EventStore({
-    storage,
-    sourceKind: initialMetadata.sourceKind,
-    sourceMetadata: initialMetadata.sourceMetadata
-  });
-  store.init();
+  store = new EventStore({ storage });
   hub = new SseHub();
 
   sourceManager.store = store;
@@ -62,11 +53,11 @@ async function main() {
   await new Promise((resolve) => {
     server.listen(config.port, "127.0.0.1", () => {
       console.log(`Mobile API Console running at http://localhost:${config.port}`);
-      console.log(`Initial source: ${initialKind}${initialOpts.deviceSerial ? ` (device ${initialOpts.deviceSerial})` : ""}`);
       if (config.localConfigPath) {
         console.log(`Loaded local config: ${config.localConfigPath}`);
       }
       sourceManager.start();
+      console.log(`Active sources: ${sourceManager.list().active.map((entry) => entry.label || entry.sourceKey).join(", ")}`);
       resolve();
     });
   });
@@ -81,7 +72,9 @@ async function handleRequest(req, res) {
       hub.send(client, "snapshot", {
         events: store.snapshot(),
         currentSession: store.currentSession(),
-        sessions: store.recentSessions(),
+        currentSessions: store.currentSessions(),
+        sessions: store.recentSessions({ sourceKey: sourceManager.selectedSourceKey }),
+        allSessions: store.recentSessions(),
         source: sourceManager.status,
         sources: sourceManager.list(),
         config: publicConfig()
@@ -91,13 +84,17 @@ async function handleRequest(req, res) {
 
     if (requestUrl.pathname === "/api/events") {
       const sessionParam = requestUrl.searchParams.get("session");
-      const sessionId = parseSessionId(sessionParam) ?? store.currentSessionId;
-      const session = sessionId ? storage.getSession(sessionId) : null;
+      const sourceKey = requestUrl.searchParams.get("sourceKey") || sourceManager.selectedSourceKey;
+      const liveSession = sourceKey ? store.currentSession(sourceKey) : store.currentSession();
+      const sessionId = parseSessionId(sessionParam) ?? liveSession?.id ?? null;
+      const session = sessionId ? store.decorateSession(storage.getSession(sessionId)) : null;
       return sendJson(res, {
         events: sessionId ? store.eventsForSession(sessionId) : [],
-        currentSession: store.currentSession(),
+        currentSession: liveSession,
+        currentSessions: store.currentSessions(),
         session,
-        sessions: store.recentSessions(),
+        sessions: store.recentSessions({ sourceKey }),
+        allSessions: store.recentSessions(),
         source: sourceManager.status,
         sources: sourceManager.list(),
         config: publicConfig()
@@ -106,16 +103,21 @@ async function handleRequest(req, res) {
 
     if (requestUrl.pathname === "/api/sessions") {
       const limit = Number.parseInt(requestUrl.searchParams.get("limit") || "50", 10);
+      const sourceKey = requestUrl.searchParams.get("sourceKey") || null;
       return sendJson(res, {
-        sessions: store.recentSessions({ limit: Number.isFinite(limit) ? limit : 50 }),
-        currentSession: store.currentSession()
+        sessions: store.recentSessions({
+          limit: Number.isFinite(limit) ? limit : 50,
+          sourceKey
+        }),
+        currentSession: sourceKey ? store.currentSession(sourceKey) : store.currentSession(),
+        currentSessions: store.currentSessions()
       });
     }
 
     const sessionDetailMatch = requestUrl.pathname.match(/^\/api\/sessions\/(\d+)$/);
     if (sessionDetailMatch) {
       const sessionId = Number.parseInt(sessionDetailMatch[1], 10);
-      const session = storage.getSession(sessionId);
+      const session = store.decorateSession(storage.getSession(sessionId));
       if (!session) return sendJson(res, { error: "Session not found" }, 404);
       return sendJson(res, { session });
     }
@@ -123,7 +125,7 @@ async function handleRequest(req, res) {
     const sessionEventsMatch = requestUrl.pathname.match(/^\/api\/sessions\/(\d+)\/events$/);
     if (sessionEventsMatch) {
       const sessionId = Number.parseInt(sessionEventsMatch[1], 10);
-      const session = storage.getSession(sessionId);
+      const session = store.decorateSession(storage.getSession(sessionId));
       if (!session) return sendJson(res, { error: "Session not found" }, 404);
       return sendJson(res, {
         session,
@@ -133,7 +135,7 @@ async function handleRequest(req, res) {
 
     if (req.method === "POST" && requestUrl.pathname === "/api/clear") {
       sourceManager.resetParser();
-      store.clear("manual");
+      store.clearSource(sourceManager.selectedSourceKey, "manual");
       return sendJson(res, { ok: true });
     }
 
@@ -151,15 +153,15 @@ async function handleRequest(req, res) {
         }
         const deviceSerial = body.deviceSerial || null;
         try {
-          sourceManager.switchTo(kind, kind === "android" ? { deviceSerial } : {});
+          sourceManager.select(kind, kind === "android" ? { deviceSerial } : {});
         } catch (error) {
           return sendJson(res, { error: error.message }, 400);
         }
-        return sendJson(res, { ok: true, sources: sourceManager.list() });
+        return sendJson(res, selectedSnapshot());
       }
 
       // Re-probe detection on every GET so a newly attached device shows up.
-      await sourceManager.detect();
+      await sourceManager.refresh();
       return sendJson(res, sourceManager.list());
     }
 
@@ -171,8 +173,12 @@ async function handleRequest(req, res) {
         return sendJson(res, { error: "Unknown source kind" }, 400);
       }
       const deviceSerial = body.deviceSerial || null;
-      sourceManager.switchTo(kind, kind === "android" ? { deviceSerial } : {});
-      return sendJson(res, { ok: true, sources: sourceManager.list() });
+      try {
+        sourceManager.select(kind, kind === "android" ? { deviceSerial } : {});
+      } catch (error) {
+        return sendJson(res, { error: error.message }, 400);
+      }
+      return sendJson(res, selectedSnapshot());
     }
 
     if (requestUrl.pathname === "/api/config") {
@@ -203,7 +209,7 @@ function shutdown() {
 
   if (sourceManager) sourceManager.stop();
   try {
-    if (store) store.closeCurrentSession();
+    if (store) store.closeAllSessions();
     if (storage) storage.close();
   } catch {
     // best-effort during shutdown
@@ -212,6 +218,19 @@ function shutdown() {
 
   const fallback = setTimeout(() => process.exit(0), 1500);
   fallback.unref?.();
+}
+
+function selectedSnapshot() {
+  return {
+    ok: true,
+    events: store.snapshot(),
+    currentSession: store.currentSession(),
+    currentSessions: store.currentSessions(),
+    sessions: store.recentSessions({ sourceKey: sourceManager.selectedSourceKey }),
+    allSessions: store.recentSessions(),
+    source: sourceManager.status,
+    sources: sourceManager.list()
+  };
 }
 
 function parseSessionId(value) {

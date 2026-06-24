@@ -63,10 +63,10 @@ function bindUi() {
     els.sourcePicker.addEventListener("change", async () => {
       const value = els.sourcePicker.value;
       if (!value) return;
-      const [kind, deviceSerial = null] = value.split("::");
-      const previous = state.sources?.current;
-      const body = { kind };
-      if (kind === "android") body.deviceSerial = deviceSerial;
+      const option = sourceOptionForValue(value);
+      if (!option) return;
+      const body = { kind: option.kind };
+      if (option.kind === "android") body.deviceSerial = option.opts?.deviceSerial || null;
       const response = await fetch("/api/source", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -74,8 +74,11 @@ function bindUi() {
       });
       if (!response.ok) {
         // Revert UI selection on failure.
-        renderSourcePicker(previous);
+        renderSourcePicker();
+        return;
       }
+      applySnapshotPayload(await response.json());
+      render();
     });
   }
 
@@ -124,24 +127,20 @@ function connectEvents() {
 
   eventSource.addEventListener("snapshot", (message) => {
     const payload = JSON.parse(message.data);
-    state.events = payload.events || [];
-    state.sessions = payload.sessions || [];
-    state.currentSessionId = payload.currentSession ? payload.currentSession.id : null;
-    state.activeSessionId = state.currentSessionId;
-    state.source = payload.source;
-    state.sources = payload.sources || null;
-    state.config = payload.config;
+    applySnapshotPayload(payload);
     selectLatestIfNeeded();
     render();
   });
 
   eventSource.addEventListener("event-upsert", (message) => {
     const event = JSON.parse(message.data);
+    if (event.sourceKey && event.sourceKey !== selectedSourceKey()) return;
     if (state.activeSessionId !== state.currentSessionId) return;
     if (event.sessionId && event.sessionId !== state.activeSessionId) return;
     const index = state.events.findIndex((item) => item.id === event.id);
     if (index >= 0) state.events[index] = event;
     else state.events.unshift(event);
+    bumpSessionCount(event.sessionId);
     sortEvents();
     selectLatestIfNeeded(event.id);
     render();
@@ -149,6 +148,7 @@ function connectEvents() {
 
   eventSource.addEventListener("session-start", (message) => {
     const payload = JSON.parse(message.data);
+    if (payload.sourceKey && payload.sourceKey !== selectedSourceKey()) return;
     const session = payload.session;
     const wasOnLive = state.activeSessionId === state.currentSessionId;
 
@@ -171,7 +171,11 @@ function connectEvents() {
   });
 
   eventSource.addEventListener("source-status", (message) => {
-    state.source = JSON.parse(message.data);
+    const status = JSON.parse(message.data);
+    updateSourceStatus(status);
+    if (status.sourceKey === selectedSourceKey()) {
+      state.source = status;
+    }
     renderSource();
   });
 
@@ -188,6 +192,39 @@ function connectEvents() {
     };
     renderSource();
   };
+}
+
+function applySnapshotPayload(payload) {
+  state.events = payload.events || [];
+  state.sessions = payload.sessions || [];
+  state.currentSessionId = payload.currentSession ? payload.currentSession.id : null;
+  state.activeSessionId = state.currentSessionId;
+  state.source = payload.source;
+  state.sources = payload.sources || null;
+  state.config = payload.config || state.config;
+  state.selectedId = null;
+}
+
+function selectedSourceKey() {
+  return state.sources?.selectedSourceKey
+    || state.sources?.current?.sourceKey
+    || null;
+}
+
+function updateSourceStatus(status) {
+  if (!state.sources?.selectable || !status?.sourceKey) return;
+  const entry = state.sources.selectable.find((item) => item.sourceKey === status.sourceKey);
+  if (!entry) return;
+  entry.status = status;
+  entry.running = Boolean(status.running);
+}
+
+function bumpSessionCount(sessionId) {
+  if (!sessionId) return;
+  const session = state.sessions.find((item) => item.id === sessionId);
+  if (!session) return;
+  const visibleCount = state.events.filter((event) => event.sessionId === sessionId).length;
+  session.eventCount = Math.max(session.eventCount || 0, visibleCount);
 }
 
 function selectLatestIfNeeded(newId) {
@@ -226,30 +263,69 @@ function renderSourcePicker(snapshot) {
   }
 
   const options = [];
-  for (const entry of sources.available || []) {
-    if (entry.kind === "android" && entry.devices && entry.devices.length > 0) {
-      const single = entry.devices.length === 1;
-      for (const device of entry.devices) {
-        const label = single ? (entry.label || `Android · ${device.label}`) : `Android · ${device.label}`;
-        options.push({ value: `android::${device.serial}`, label });
-      }
-    } else if (entry.kind === "android") {
-      options.push({ value: "android::", label: entry.label || "Android" });
-    } else {
-      options.push({ value: entry.kind, label: entry.label || entry.kind });
-    }
+  for (const entry of sourceOptions()) {
+    options.push({
+      value: entry.sourceKey || sourceValueFor(entry),
+      label: entry.label || entry.kind,
+      kind: entry.kind,
+      opts: entry.opts || {}
+    });
   }
 
   const current = sources.current || { kind: "", opts: {} };
-  const currentValue = current.kind === "android"
-    ? `android::${current.opts?.deviceSerial || ""}`
-    : (current.kind || "");
+  const currentValue = sources.selectedSourceKey || current.sourceKey || sourceValueFor(current);
 
   els.sourcePicker.innerHTML = options.map((option) => {
     const selected = option.value === currentValue ? " selected" : "";
     return `<option value="${escapeHtml(option.value)}"${selected}>${escapeHtml(option.label)}</option>`;
   }).join("");
   els.sourcePicker.disabled = options.length <= 1;
+}
+
+function sourceOptions() {
+  const sources = state.sources || {};
+  if (sources.selectable && sources.selectable.length) return sources.selectable;
+
+  const options = [];
+  for (const entry of sources.available || []) {
+    if (entry.kind === "android" && entry.devices && entry.devices.length > 0) {
+      const single = entry.devices.length === 1;
+      for (const device of entry.devices) {
+        const label = single ? (entry.label || `Android · ${device.label}`) : `Android · ${device.label}`;
+        options.push({
+          sourceKey: `android::${device.serial}`,
+          kind: "android",
+          opts: { deviceSerial: device.serial },
+          label
+        });
+      }
+    } else if (entry.kind === "android") {
+      options.push({
+        sourceKey: "android::",
+        kind: "android",
+        opts: { deviceSerial: null },
+        label: entry.label || "Android"
+      });
+    } else {
+      options.push({
+        sourceKey: entry.kind,
+        kind: entry.kind,
+        opts: {},
+        label: entry.label || entry.kind
+      });
+    }
+  }
+  return options;
+}
+
+function sourceOptionForValue(value) {
+  return sourceOptions().find((entry) => (entry.sourceKey || sourceValueFor(entry)) === value);
+}
+
+function sourceValueFor(entry) {
+  if (!entry?.kind) return "";
+  if (entry.kind === "android") return `android::${entry.opts?.deviceSerial || ""}`;
+  return entry.kind;
 }
 
 function renderEmptyHint() {

@@ -29,24 +29,18 @@ the working directory), reload the service so launchd re-reads it:
 ~/mobile-api-console/bin/start-service
 ```
 
-The header dropdown in the UI switches between iOS / Android / Demo live, so
-under normal conditions you almost never need to restart the service. Restart
-only when changing the plist itself, the port, or the on-disk config.
+The header dropdown in the UI switches between iOS / Android / Demo views live,
+so under normal conditions you almost never need to restart the service.
+Restart only when changing the plist itself, the port, or the on-disk config.
 
-Current capture model: the service keeps recording the selected source even
-when no browser is connected. For example, if the LaunchAgent is running with
-Android selected, `adb logcat` continues feeding SQLite while the web UI is
-closed. However, the dropdown is currently an active-source switch. Switching
-from Android to iOS stops the Android logcat process and starts the iOS stream,
-so new Android logs during that time are not recorded. Previously captured
-Android sessions remain in the database and can still be selected from history.
+Current capture model: the service records every available real source even
+when no browser is connected. For example, if both iOS and Android are
+available, the iOS log stream and Android `adb logcat` process keep writing to
+separate SQLite sessions while the web UI shows whichever platform is selected.
+Previously captured sessions remain in the database and can still be selected
+from history.
 
-The next planned architecture change is always-on multi-source capture: run
-each available platform source continuously, keep one open session per source,
-and let the UI dropdown choose which live session to view instead of which
-source process to run.
-
-Expected platform adaptation for that change:
+Platform adaptation:
 
 - If only iOS is available, record iOS and show iOS sessions/history.
 - If only Android is available, record Android and show Android

@@ -4,6 +4,17 @@ This file is a parking place for future improvements. It should stay practical:
 ideas are grouped by area, with enough detail that a later implementation can
 turn them into issues or milestones.
 
+## Current Status
+
+- Android capture is implemented through `adb logcat`, the default `API_CURL`
+  tag, and `AndroidApiCurlParser`.
+- The UI can switch between iOS, Android, and Demo at runtime.
+- SQLite persistence is active: captured sessions and events survive browser
+  reloads and server restarts.
+- Current source switching is still an active capture switch. The selected
+  source keeps recording in the background, but the previous source is stopped,
+  so logs from the unselected platform are not captured until switching back.
+
 ## Capture Sources
 
 ### Android and Android Studio
@@ -11,18 +22,45 @@ turn them into issues or milestones.
 - [x] Android log source backed by `adb logcat` (`AdbLogcatStream`).
 - [x] Emulator + physical-device selection (multi-device dropdown).
 - [x] Filter by tag (`--android-tag`, defaults to `API_CURL`).
-- [x] Header dropdown switches between iOS / Android / Demo at runtime.
+- [x] Header dropdown switches the active capture source between iOS / Android
+  / Demo at runtime.
 - [x] Platform metadata recorded on each session (`ios-simulator`,
   `android-emulator`, `android-device`, with package name, log tag, and device
   serial).
+- [x] Parse Android `API_CURL` summaries, multi-line cURL commands, optional
+  `[BODY]` response-body lines, and continuation chunks split around Logcat's
+  per-line limit.
 - [ ] Parse OkHttp `HttpLoggingInterceptor` lines as a fallback for apps that
   don't ship their own `CurlLogger`.
-- [ ] Capture response headers + body on Android. The current `API_CURL` format
-  only emits the request side and a status code; extending `CurlLogger` to log
-  a response block would let the Response tab work on Android.
+- [ ] Capture response headers on Android. The current `API_CURL` format can
+  emit an optional response body, but response headers are still not represented
+  in the parser contract.
 - [ ] Reuse the iOS `===== REQUEST/CURL COMMAND/RESPONSE =====` markers on
   Android too, so Android apps that prefer the iOS-style block format can use
   the existing `MobileNetworkParser` instead of `AndroidApiCurlParser`.
+
+### Always-on Multi-source Capture
+
+Next planned work: keep every available real source recording independently,
+even when the browser is closed or the UI is looking at another platform.
+
+- [ ] Refactor `SourceManager` from one `{source, parser, store}` to a
+  source-keyed map, for example iOS simulator plus each Android device serial.
+- [ ] Start every available real source on server startup: iOS when a simulator
+  is booted, Android when one or more devices are attached.
+- [ ] Keep one open persistent session per active source, tagged with existing
+  `sourceKind` and `sourceMetadata`.
+- [ ] Route parser upserts, clear markers, errors, and quiet flushes to the
+  correct source session instead of one global `EventStore.currentSessionId`.
+- [ ] Change the dropdown into a view selector so switching views does not call
+  `source.stop()` on the previous platform.
+- [ ] Include source identity in SSE updates so the browser can render only the
+  selected live source while still updating session counts in the background.
+- [ ] Add a small enable/disable control for noisy or battery-sensitive
+  background sources.
+- [ ] Add tests covering parallel iOS/Android routing, source switching without
+  data loss, source-specific clear markers, shutdown flushes, and legacy session
+  browsing.
 
 ### Source Health
 
@@ -115,4 +153,3 @@ turn them into issues or milestones.
 - Add backpressure or batching for bursty log streams.
 - Add parser fixtures from real iOS and future Android logs.
 - Add browser-level smoke tests for the main UI flows.
-

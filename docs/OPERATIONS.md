@@ -24,9 +24,21 @@ the working directory), reload the service so launchd re-reads it:
 ```
 
 The header dropdown in the UI switches between iOS / Android / Demo live, so
-under normal conditions you almost never need to restart the service —
-restart only when changing the plist itself, the port, or the on-disk
-config.
+under normal conditions you almost never need to restart the service. Restart
+only when changing the plist itself, the port, or the on-disk config.
+
+Current capture model: the service keeps recording the selected source even
+when no browser is connected. For example, if the LaunchAgent is running with
+Android selected, `adb logcat` continues feeding SQLite while the web UI is
+closed. However, the dropdown is currently an active-source switch. Switching
+from Android to iOS stops the Android logcat process and starts the iOS stream,
+so new Android logs during that time are not recorded. Previously captured
+Android sessions remain in the database and can still be selected from history.
+
+The next planned architecture change is always-on multi-source capture: run
+each available platform source continuously, keep one open session per source,
+and let the UI dropdown choose which live session to view instead of which
+source process to run.
 
 ## Database Location
 
@@ -72,8 +84,8 @@ bin/uninstall-service
 
 The app currently keeps captured sessions until the database is removed or a
 future cleanup feature deletes old records. The UI clear action starts a fresh
-session for the current view, but it is not intended to be long-term retention
-management.
+session for the current active source, but it is not intended to be long-term
+retention management.
 
 For manual cleanup today:
 
@@ -129,4 +141,3 @@ When implemented, low-space handling should be helpful but not surprising:
   behavior.
 - Keep enough detail in the warning for the user to understand what will be
   deleted before confirming.
-

@@ -39,6 +39,12 @@ Both formats are intentionally minimal — text in, parsed events out. You can
 add fields without breaking the parser as long as you don't change the
 markers.
 
+Current console behavior: iOS and Android emitters can both be installed in
+their apps, but the console records only the selected source at a time. The
+service keeps that selected source recording even when the browser is closed;
+switching the dropdown to another source stops the previous source until you
+switch back. Always-on parallel recording for both platforms is planned next.
+
 ---
 
 ## iOS setup

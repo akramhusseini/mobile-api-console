@@ -13,9 +13,10 @@ Electron wrapper and no frontend build step. The only runtime package is
 
 ## Features
 
-- Live stream from either the booted iOS Simulator or an attached Android
-  emulator/device — auto-detected on startup with a header dropdown to switch
-  between them when both are available.
+- Live stream from the selected source: the booted iOS Simulator, an attached
+  Android emulator/device, or demo mode. Sources are auto-detected on startup
+  and the header dropdown can switch the active capture source when more than
+  one is available.
 - Per-call view: request URL/method/headers/body, a ready-to-run cURL command,
   response status/headers/body, raw log lines, and any errors.
 - Search and filter by URL, status, method.
@@ -23,6 +24,10 @@ Electron wrapper and no frontend build step. The only runtime package is
 - SQLite-backed session history so recent captures remain available after a
   restart. Each session is tagged with the platform (`ios-simulator`,
   `android-emulator`, or `android-device`).
+- Current limitation: source switching changes which log process is running.
+  Already-captured sessions stay in SQLite, but new logs from the unselected
+  platform are not captured until you switch back. Always-on parallel capture is
+  the next planned architecture step.
 - Optional macOS LaunchAgent so the console runs in the background and is
   always available at `http://localhost:3957`.
 - Per-developer config via `~/.mobile-api-console.json` so real bundle ids,
@@ -35,8 +40,8 @@ Electron wrapper and no frontend build step. The only runtime package is
 - [Public release checklist](docs/PUBLIC_RELEASE.md) - final checks before
   publishing a clean branch to GitHub.
 - [Roadmap and enhancement ideas](docs/ROADMAP.md) - planned expansion areas
-  such as Android logcat support, richer JSON viewing, bracket highlighting,
-  exports, privacy filters, and disk-space safeguards.
+  such as always-on multi-source capture, richer JSON viewing, bracket
+  highlighting, exports, privacy filters, and disk-space safeguards.
 
 ## Prerequisites
 
@@ -51,6 +56,13 @@ Electron wrapper and no frontend build step. The only runtime package is
 On startup the console probes both `xcrun` and `adb`. The header dropdown
 shows whichever platforms are usable; if only one is installed the dropdown
 just locks to that source. Demo mode is always available.
+
+Important current behavior: the dropdown switches the active capture source,
+not just the visible view. The selected source keeps recording into SQLite even
+when the browser is closed, but the non-selected source is stopped. For example,
+while iOS is selected, Android `adb logcat` is not running, so new Android API
+logs during that time are not stored. The next planned change is to keep iOS
+and Android sources running in parallel and make the dropdown a view selector.
 
 ### Install Node.js on macOS
 
@@ -366,9 +378,12 @@ tail -f ~/Library/Logs/mobile-api-console.out.log
 
 ### 4. Quick switching while the service runs
 
-The header dropdown in the UI swaps sources live — no need to restart the
-service when you move between the iOS Simulator, an Android emulator, and
-demo mode. The chosen source is also exposed via:
+The header dropdown in the UI swaps the active source live — no need to restart
+the service when you move between the iOS Simulator, an Android emulator, and
+demo mode. Today that swap stops the previous source and starts the selected
+one; existing sessions remain available, but new logs from the previous
+platform are not captured while it is unselected. The chosen source is also
+exposed via:
 
 ```sh
 curl http://localhost:3957/api/sources                              # current + available
@@ -386,7 +401,7 @@ mobile-api-console/
 ├── src/
 │   ├── config.js           # CLI / env / ~/.mobile-api-console.json resolution
 │   ├── platform.js         # xcrun + adb detection
-│   ├── sourceManager.js    # owns the live source + parser, supports swap
+│   ├── sourceManager.js    # owns the selected live source + parser
 │   ├── eventStore.js       # session-scoped event store with SSE notifications
 │   ├── sseHub.js           # Server-Sent Events hub
 │   ├── logSource/          # SimulatorLogStream, AdbLogcatStream, DemoLogSource
@@ -420,10 +435,9 @@ MIT. See [LICENSE](LICENSE).
   starts with one of the recognised headers (`===== REQUEST =====`, etc.) and
   ends with a separator line of `=` of length 8 or more or with the next block
   header.
-- **Android events show no response body** — by design. The Android adapter
-  reads what the app logs via `CurlLogger`, which only emits the request side
-  (status code via the summary line). To see response bodies, extend
-  `CurlLogger` to log them and add a marker the parser can recognise.
+- **Android response body is empty** — the Android adapter only displays a body
+  when the app emits the optional `[BODY] ...` line under the configured Logcat
+  tag. Response headers are not part of the default Android wire format yet.
 - **Source dropdown only shows one platform** — the other tool isn't on `PATH`.
   For Android, export `ANDROID_HOME` or `ADB_PATH`. For iOS you need a full
   Xcode install (the Command Line Tools alone are not enough for `simctl`).

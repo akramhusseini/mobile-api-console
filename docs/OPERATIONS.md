@@ -15,6 +15,11 @@ iteration, or when running on a non-mac box. Both modes share the same
 config (`~/.mobile-api-console.json`), CLI flags, env vars, and SQLite
 database.
 
+This operational setup has been tested on macOS. On Windows and Ubuntu, use
+foreground `npm start` for Android/Demo mode until a platform-specific service
+file is added. iOS logging is not available on Windows or Ubuntu because it
+depends on Apple's macOS-only `xcrun simctl` tooling.
+
 The console checkout can live anywhere. The LaunchAgent `WorkingDirectory`
 should point to the console repo, not to the iOS or Android app repo. Mobile
 app repositories can live in any directory because the console only depends on
@@ -47,6 +52,24 @@ Platform adaptation:
   sessions/history.
 - If both are available, record both continuously and use the platform selector
   to choose which live stream and history are visible.
+
+## First-run verification
+
+Before blaming the browser UI, verify the raw platform logs:
+
+```sh
+# iOS, macOS only. Replace the subsystem with your app's value.
+xcrun simctl spawn booted log stream \
+  --style compact \
+  --predicate 'subsystem == "com.example.mobile" AND category == "api-console"'
+
+# Android. Adjust adb path if it is not on PATH.
+adb logcat -v threadtime -T 1 API_CURL:D '*:S'
+```
+
+Then trigger one API request in the app. If these commands show nothing, the
+mobile app emitter is not wired yet or the config identifiers do not match. If
+they show valid blocks but the browser stays empty, check the service logs.
 
 ## Database Location
 

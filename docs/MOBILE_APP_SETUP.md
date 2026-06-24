@@ -26,7 +26,7 @@ OSLog / Logcat lines and the matching identifiers in `~/.mobile-api-console.json
 ## Overview
 
 There are two emitter formats — one per platform — and the console picks the
-right parser based on which source you're streaming from.
+right parser for each running source.
 
 | | iOS | Android |
 |---|---|---|
@@ -48,6 +48,28 @@ Current console behavior: iOS and Android emitters can both be installed in
 their apps. If only one platform is available, the console records that
 platform. If both are available, the service records both continuously while
 the dropdown selects which platform history is visible.
+
+### Non-negotiable log contract
+
+The console is deliberately simple: it does not inspect your app code and does
+not sniff HTTPS traffic. It only parses text logs. If the UI is empty, first
+prove the raw logs match this contract.
+
+- **Debug-only:** emitters must compile out of release builds.
+- **Stable selectors:** iOS uses one `subsystem` + category `api-console`;
+  Android uses one Logcat tag, `API_CURL` by default.
+- **Whole blocks:** iOS REQUEST / CURL / RESPONSE blocks must be emitted as
+  one OSLog call per block, not one log call per line.
+- **Public iOS privacy:** iOS string interpolation must use
+  `privacy: .public`, otherwise OSLog redacts the useful values.
+- **Exact Android summary:** Android requests must start with
+  `[200] GET path (123ms)` or `[ERR] GET path (123ms)`.
+- **Exact Android body marker:** Android response bodies must be prefixed with
+  `[BODY] `.
+- **Long Android messages:** continuation chunks must be prefixed with literal
+  `...` so the parser joins them without injecting fake newlines.
+- **Clear markers:** `API_CONSOLE_CLEAR`, `===== CONSOLE CLEARED =====`, or
+  `CONSOLE_CLEARED` start a fresh session for that platform only.
 
 ---
 
@@ -547,11 +569,13 @@ repo. It's self-contained — the assistant does not need to read this file.
 >   - If you see `Podfile`, `*.xcodeproj`, or `*.swift` files → iOS.
 >   - If you see `build.gradle.kts`, `build.gradle`, or `AndroidManifest.xml`
 >     → Android.
->   - If both, ask me which one before writing code.
+>   - If both are present, wire both unless I explicitly asked for only one.
+>     The console can record both platforms at the same time.
 >
-> Step 2 — read the network layer. Find the central place that issues HTTP
-> requests (a `NetworkManager`, an `OkHttpClient` builder, a Retrofit
-> module, or similar). Don't sprinkle logging across every call site.
+> Step 2 — read the network layer for each selected platform. Find the central
+> place that issues HTTP requests (a `NetworkManager`, an `OkHttpClient`
+> builder, a Retrofit module, or similar). Don't sprinkle logging across every
+> call site.
 >
 > Step 3 — emit the exact format the console parses. Do NOT invent your own.
 >
@@ -614,10 +638,10 @@ repo. It's self-contained — the assistant does not need to read this file.
 >     Don't ask me to "check the console" — fix it.
 >
 > Step 5 — report:
->   - The exact subsystem you used (iOS) or the tag you used (Android).
+>   - The exact subsystem you used (iOS) and/or the tag you used (Android).
 >   - The file paths you created or modified.
->   - One captured request from the verify command above, so I can paste it
->     into ~/.mobile-api-console.json under `ios.subsystem` /
+>   - One captured request from each verify command above, so I can paste the
+>     identifiers into ~/.mobile-api-console.json under `ios.subsystem` /
 >     `android.applicationId`.
 >
 > Do not modify the console repo. Do not change my OkHttp/URLSession

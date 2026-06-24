@@ -1,5 +1,6 @@
 "use strict";
 
+const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 
@@ -7,6 +8,11 @@ const DEFAULT_PORT = 3957;
 const DEFAULT_PROCESS = "ExampleMobileApp";
 const DEFAULT_SUBSYSTEM = "com.example.mobile";
 const DEFAULT_CATEGORY = "api-console";
+const DEFAULT_SIMULATOR = "booted";
+const DEFAULT_ANDROID_APPLICATION_ID = "com.example.mobile";
+const DEFAULT_ANDROID_LOG_TAG = "API_CURL";
+const DEFAULT_SOURCE = "auto";
+
 const DEFAULT_DATABASE_PATH = path.join(
   os.homedir(),
   "Library",
@@ -14,6 +20,8 @@ const DEFAULT_DATABASE_PATH = path.join(
   "mobile-api-console",
   "data.db"
 );
+
+const LOCAL_CONFIG_FILENAMES = [".mobile-api-console.json"];
 
 function readOption(args, name, fallback) {
   const prefix = `--${name}=`;
@@ -30,57 +38,177 @@ function hasFlag(args, name) {
   return args.includes(`--${name}`);
 }
 
-function buildConfig(argv = process.argv.slice(2), env = process.env) {
-  const processName = readOption(
-    argv,
-    "process",
-    env.MOBILE_API_CONSOLE_PROCESS || DEFAULT_PROCESS
+function loadLocalConfig(env, cwd = process.cwd(), home = env.HOME || os.homedir()) {
+  const explicit = env.MOBILE_API_CONSOLE_CONFIG;
+  const candidates = [];
+  if (explicit) candidates.push(explicit);
+  for (const name of LOCAL_CONFIG_FILENAMES) {
+    candidates.push(path.join(cwd, name));
+    candidates.push(path.join(home, name));
+  }
+
+  for (const candidate of candidates) {
+    if (!candidate) continue;
+    if (!fs.existsSync(candidate)) continue;
+    try {
+      const raw = fs.readFileSync(candidate, "utf8");
+      const parsed = JSON.parse(raw);
+      return { path: candidate, data: parsed };
+    } catch (error) {
+      // Surface the path but don't crash the server on a malformed file.
+      process.stderr.write(`Ignoring malformed config at ${candidate}: ${error.message}\n`);
+    }
+  }
+  return { path: null, data: {} };
+}
+
+function pick(...values) {
+  for (const value of values) {
+    if (value !== undefined && value !== null && value !== "") return value;
+  }
+  return undefined;
+}
+
+function normalizeSource(value) {
+  const v = String(value || "").toLowerCase();
+  if (v === "ios" || v === "android" || v === "demo" || v === "auto") return v;
+  return "auto";
+}
+
+function buildConfig(argv = process.argv.slice(2), env = process.env, cwd = process.cwd()) {
+  const local = loadLocalConfig(env, cwd, env.HOME || os.homedir());
+  const file = local.data || {};
+  const fileIos = file.ios || {};
+  const fileAndroid = file.android || {};
+
+  const processName = pick(
+    readOption(argv, "process", undefined),
+    env.MOBILE_API_CONSOLE_PROCESS,
+    fileIos.processName,
+    file.processName,
+    DEFAULT_PROCESS
   );
 
-  const subsystem = readOption(
-    argv,
-    "subsystem",
-    env.MOBILE_API_CONSOLE_SUBSYSTEM || DEFAULT_SUBSYSTEM
+  const subsystem = pick(
+    readOption(argv, "subsystem", undefined),
+    env.MOBILE_API_CONSOLE_SUBSYSTEM,
+    fileIos.subsystem,
+    DEFAULT_SUBSYSTEM
   );
 
-  const category = readOption(
-    argv,
-    "category",
-    env.MOBILE_API_CONSOLE_CATEGORY || DEFAULT_CATEGORY
+  const category = pick(
+    readOption(argv, "category", undefined),
+    env.MOBILE_API_CONSOLE_CATEGORY,
+    fileIos.category,
+    DEFAULT_CATEGORY
   );
 
-  const predicate = readOption(
-    argv,
-    "predicate",
-    env.MOBILE_API_CONSOLE_PREDICATE
-      || `subsystem == "${subsystem}" AND category == "${category}"`
+  const predicate = pick(
+    readOption(argv, "predicate", undefined),
+    env.MOBILE_API_CONSOLE_PREDICATE,
+    fileIos.predicate,
+    `subsystem == "${subsystem}" AND category == "${category}"`
   );
 
-  const portValue = readOption(
-    argv,
-    "port",
-    env.MOBILE_API_CONSOLE_PORT || String(DEFAULT_PORT)
+  const simulator = pick(
+    readOption(argv, "simulator", undefined),
+    env.MOBILE_API_CONSOLE_SIMULATOR,
+    fileIos.simulator,
+    DEFAULT_SIMULATOR
   );
 
+  const androidApplicationId = pick(
+    readOption(argv, "android-app", undefined),
+    env.MOBILE_API_CONSOLE_ANDROID_APP_ID,
+    fileAndroid.applicationId,
+    DEFAULT_ANDROID_APPLICATION_ID
+  );
+
+  const androidLogTag = pick(
+    readOption(argv, "android-tag", undefined),
+    env.MOBILE_API_CONSOLE_ANDROID_LOG_TAG,
+    fileAndroid.logTag,
+    DEFAULT_ANDROID_LOG_TAG
+  );
+
+  const androidDeviceSerial = pick(
+    readOption(argv, "android-device", undefined),
+    env.MOBILE_API_CONSOLE_ANDROID_DEVICE,
+    fileAndroid.deviceSerial,
+    null
+  );
+
+  const androidAdbPath = pick(
+    readOption(argv, "adb-path", undefined),
+    env.ADB_PATH,
+    fileAndroid.adbPath,
+    null
+  );
+
+  const portValue = pick(
+    readOption(argv, "port", undefined),
+    env.MOBILE_API_CONSOLE_PORT,
+    file.port,
+    String(DEFAULT_PORT)
+  );
   const port = Number.parseInt(portValue, 10);
+
+  const defaultSource = normalizeSource(pick(
+    readOption(argv, "source", undefined),
+    env.MOBILE_API_CONSOLE_SOURCE,
+    file.defaultSource,
+    DEFAULT_SOURCE
+  ));
+
+  const demo = hasFlag(argv, "demo") || env.MOBILE_API_CONSOLE_DEMO === "1";
+  const noStream = hasFlag(argv, "no-stream") || env.MOBILE_API_CONSOLE_NO_STREAM === "1";
 
   return {
     port: Number.isFinite(port) ? port : DEFAULT_PORT,
+
+    // Legacy top-level iOS fields kept so existing code keeps working unchanged.
     processName,
     subsystem,
     category,
     predicate,
-    simulator: readOption(
-      argv,
-      "simulator",
-      env.MOBILE_API_CONSOLE_SIMULATOR || "booted"
-    ),
-    demo: hasFlag(argv, "demo") || env.MOBILE_API_CONSOLE_DEMO === "1",
-    noStream: hasFlag(argv, "no-stream") || env.MOBILE_API_CONSOLE_NO_STREAM === "1",
+    simulator,
+
+    ios: { processName, subsystem, category, predicate, simulator },
+    android: {
+      applicationId: androidApplicationId,
+      logTag: androidLogTag,
+      deviceSerial: androidDeviceSerial,
+      adbPath: androidAdbPath
+    },
+
+    defaultSource,
+    demo,
+    noStream,
     publicDir: "public",
-    maxEvents: Number.parseInt(env.MOBILE_API_CONSOLE_MAX_EVENTS || "400", 10),
-    databasePath: readOption(argv, "db", env.MOBILE_API_CONSOLE_DB || DEFAULT_DATABASE_PATH)
+    maxEvents: Number.parseInt(env.MOBILE_API_CONSOLE_MAX_EVENTS || file.maxEvents || "400", 10),
+    databasePath: pick(
+      readOption(argv, "db", undefined),
+      env.MOBILE_API_CONSOLE_DB,
+      file.databasePath,
+      DEFAULT_DATABASE_PATH
+    ),
+    localConfigPath: local.path
   };
 }
 
-module.exports = { buildConfig };
+module.exports = {
+  buildConfig,
+  loadLocalConfig,
+  normalizeSource,
+  DEFAULTS: {
+    port: DEFAULT_PORT,
+    processName: DEFAULT_PROCESS,
+    subsystem: DEFAULT_SUBSYSTEM,
+    category: DEFAULT_CATEGORY,
+    simulator: DEFAULT_SIMULATOR,
+    androidApplicationId: DEFAULT_ANDROID_APPLICATION_ID,
+    androidLogTag: DEFAULT_ANDROID_LOG_TAG,
+    source: DEFAULT_SOURCE,
+    databasePath: DEFAULT_DATABASE_PATH
+  }
+};

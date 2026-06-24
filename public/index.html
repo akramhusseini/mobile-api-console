@@ -17,6 +17,8 @@
           </div>
         </div>
         <div class="top-actions">
+          <label class="source-picker-label" for="sourcePicker">Source</label>
+          <select id="sourcePicker" class="select-input source-picker" aria-label="Log source"></select>
           <button id="restartButton" class="icon-button" title="Restart stream" aria-label="Restart stream">Restart</button>
           <button id="clearButton" class="danger-button" title="Clear visible API calls" aria-label="Clear visible API calls">Clear</button>
         </div>
@@ -52,7 +54,7 @@
         <section class="detail-pane">
           <div id="emptyState" class="empty-state">
             <h2>No API calls yet</h2>
-            <p>Run the iOS app in a booted simulator and trigger an API request.</p>
+            <p id="emptyStateHint">Run the iOS app in a booted simulator and trigger an API request.</p>
           </div>
 
           <article id="detailContent" class="detail-content hidden">

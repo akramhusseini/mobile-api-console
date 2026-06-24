@@ -96,6 +96,23 @@ button {
   gap: 8px;
 }
 
+.source-picker-label {
+  color: var(--muted);
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.source-picker {
+  min-width: 180px;
+  height: 34px;
+}
+
+.source-picker:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+}
+
 .icon-button,
 .danger-button,
 .copy-button,

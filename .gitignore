@@ -6,6 +6,10 @@ npm-debug.log*
 .env.local
 .idea/
 .vscode/
+.claude/
+
+# Per-developer config (real bundle ids, log tags, device serials)
+.mobile-api-console.json
 
 # Local SQLite database (default) plus WAL/shm sidecars
 data/

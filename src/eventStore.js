@@ -23,6 +23,11 @@ class EventStore extends EventEmitter {
     return session;
   }
 
+  setSource(sourceKind, sourceMetadata = null) {
+    this.sourceKind = sourceKind;
+    this.sourceMetadata = sourceMetadata;
+  }
+
   currentSession() {
     if (!this.currentSessionId) return null;
     return this.storage.getSession(this.currentSessionId);

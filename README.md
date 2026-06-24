@@ -1,11 +1,11 @@
 # Mobile API Console
 
-A local browser UI that mirrors a mobile app's API traffic from a booted iOS
-Simulator. It streams Apple unified logs filtered by the app's debug category,
-parses each request / cURL / response / multipart block, and groups them as a
-list of API calls you can click through. Useful when you want a clean,
-copy-friendly view of what the app is actually sending and receiving, without
-scrolling through the Xcode console.
+A local browser UI that mirrors a mobile app's API traffic. It streams either
+iOS Simulator unified logs (`xcrun simctl spawn booted log stream`) or Android
+logcat output (`adb logcat`), parses each request / cURL / response block, and
+groups them as a list of API calls you can click through. Useful when you want
+a clean, copy-friendly view of what the app is actually sending and receiving,
+without scrolling through Xcode or Android Studio's console.
 
 The web app is a small Node server plus a plain browser UI. There is no
 Electron wrapper and no frontend build step. The only runtime package is
@@ -13,16 +13,20 @@ Electron wrapper and no frontend build step. The only runtime package is
 
 ## Features
 
-- Live stream from the booted iOS Simulator (`xcrun simctl spawn booted log
-  stream`), filtered by subsystem and category.
+- Live stream from either the booted iOS Simulator or an attached Android
+  emulator/device — auto-detected on startup with a header dropdown to switch
+  between them when both are available.
 - Per-call view: request URL/method/headers/body, a ready-to-run cURL command,
   response status/headers/body, raw log lines, and any errors.
 - Search and filter by URL, status, method.
 - Demo mode for offline development of the UI itself.
 - SQLite-backed session history so recent captures remain available after a
-  restart.
+  restart. Each session is tagged with the platform (`ios-simulator`,
+  `android-emulator`, or `android-device`).
 - Optional macOS LaunchAgent so the console runs in the background and is
   always available at `http://localhost:3957`.
+- Per-developer config via `~/.mobile-api-console.json` so real bundle ids,
+  Logcat tags, and device serials never get committed to the repo.
 
 ## Documentation
 
@@ -36,9 +40,17 @@ Electron wrapper and no frontend build step. The only runtime package is
 
 ## Prerequisites
 
-- macOS (the tool depends on `xcrun simctl` and Apple's unified log).
-- Xcode + the iOS Simulator.
 - Node.js 18 or newer.
+- At least one of:
+  - **iOS:** macOS + Xcode + a booted iOS Simulator (the tool uses `xcrun simctl`
+    and Apple's unified log).
+  - **Android:** Android Studio (or just the platform-tools), with `adb` on
+    `PATH` or `ANDROID_HOME` / `ANDROID_SDK_ROOT` exported, and an emulator or
+    USB-debuggable device attached.
+
+On startup the console probes both `xcrun` and `adb`. The header dropdown
+shows whichever platforms are usable; if only one is installed the dropdown
+just locks to that source. Demo mode is always available.
 
 ### Install Node.js on macOS
 
@@ -78,58 +90,26 @@ By default the database lives at:
 
 Override with `--db <path>` or `MOBILE_API_CONSOLE_DB=<path>`. The parent directory is created on first run.
 
-## Configure the iOS app to feed the console
+## Configure the mobile app to feed the console
 
-The console reads from Apple's unified log, filtered by:
+The console doesn't sniff the network — it parses log lines your app emits.
+You'll add a small debug-only emitter on the app side that prints requests
+and responses in a specific format the console knows how to read.
 
-```text
-subsystem == "com.example.mobile" AND category == "api-console"
-```
+**Full walkthrough with copy-pasteable code for both platforms:**
+→ **[docs/MOBILE_APP_SETUP.md](docs/MOBILE_APP_SETUP.md)**
 
-The iOS app must emit its API debug output through an `os.Logger` with that
-exact `subsystem` and `category` while running in a `#if DEBUG` build.
+That document covers:
 
-Add (or keep) a debug-only extension on `NetworkManager` like this:
+- iOS via OSLog (`subsystem` + `category` of your choice).
+- Android via Logcat (tag `API_CURL` by default).
+- A copy-paste **agent-neutral setup prompt** at the bottom that you can hand
+  to Claude Code, Codex, Cursor, Antigravity, or any other coding assistant
+  inside your mobile-app repo so it does the wiring for you.
 
-```swift
-import OSLog
+### TL;DR — the wire format
 
-#if DEBUG
-extension NetworkManager {
-    private static let apiConsoleLogger = Logger(
-        subsystem: "com.example.mobile",
-        category: "api-console"
-    )
-
-    /// Emits one OSLog entry per call. Pass the entire multi-line block as
-    /// a single string — do NOT split by newlines and call this per line,
-    /// because that makes the Xcode console draw a row divider between
-    /// every line.
-    private func debugAPIConsolePrint(_ message: String) {
-        Self.apiConsoleLogger.debug("\(message, privacy: .public)")
-    }
-
-    private func printRequest(_ request: URLRequest) {
-        var lines: [String] = []
-        lines.append("🌐 ===== REQUEST =====")
-        lines.append("URL: \(request.url?.absoluteString ?? "N/A")")
-        lines.append("Method: \(request.httpMethod ?? "N/A")")
-        // ... headers, body ...
-        lines.append("====================")
-        debugAPIConsolePrint(lines.joined(separator: "\n"))
-
-        printCurlCommand(request)
-    }
-
-    // printCurlCommand, printMultipartRequest, printResponse follow the
-    // same pattern: build the block as one string, call
-    // debugAPIConsolePrint once.
-}
-#endif
-```
-
-The parser recognises these block markers (text matters; the emoji prefix
-is optional):
+iOS emits four block markers under your chosen `subsystem` + `category`:
 
 ```text
 ===== REQUEST =====
@@ -138,28 +118,30 @@ is optional):
 ===== RESPONSE =====
 ```
 
-Each block ends at the next block header or at a line of `=` of length 8 or
-more. Inside a block the parser understands `URL:`, `Method:`, `Status Code:`,
-`Headers:` (followed by `  key: value` indented lines), and `Body:` (followed
-by the body — JSON is parsed/displayed prettified if valid).
+Each block is one `Logger.debug(...)` call with the lines joined by `\n`.
+Block ends at the next block header or a line of `=` (length ≥ 8). Inside a
+block the parser reads `URL:`, `Method:`, `Status Code:`, `Headers:` (followed
+by `  key: value` indented lines), and `Body:`.
 
-Android / Android Studio support is not implemented yet. The intended direction
-is to add an Android logcat source that emits the same REQUEST / CURL /
-RESPONSE block format, so the browser UI and storage model can stay shared
-across iOS and Android. See [Roadmap and enhancement ideas](docs/ROADMAP.md).
+Android emits one tag (`API_CURL` by default) with three line shapes per
+request:
 
-### Notes on the Xcode side
+```text
+[200] GET v1/users (245ms)            ← summary line opens a new event
+curl -X GET \                          ← multi-line cURL
+  -H 'Accept: application/json' \
+  'https://api.example.com/v1/users'
+[BODY] {"data":[…]}                    ← optional response body
+```
 
-- The app **must be built in `DEBUG`** for the OSLog extension to compile in.
-- Emit each REQUEST / CURL / RESPONSE block as **one** `os_log` call. If you
-  split the block by newlines and emit per line, Xcode draws a row divider
-  between each line and the console becomes painful to read or copy.
-- Don't also `print()` the same content — that doubles every line in the
-  Xcode console.
+Long messages (cURL or body over 4 KB) are chunked at 4000-char boundaries by
+the app and continuation chunks are prefixed with literal `...` so the parser
+glues them back without a fake newline. The console handles that for you.
 
 ### Triggering a clear from the app
 
-Emit any of these markers from the app to clear both Xcode and this console:
+Emit any of these markers (under the iOS subsystem/category, or under the
+Android tag) and the console wipes the current session:
 
 ```text
 API_CONSOLE_CLEAR
@@ -168,6 +150,24 @@ CONSOLE_CLEARED
 ```
 
 ## Run
+
+There are two supported ways to run the console. **For day-to-day use we
+recommend the LaunchAgent setup** so the console is always reachable at
+`http://localhost:3957` without a terminal window — but `npm start` works
+just as well for quick checks and is the right choice the first few times
+you're tweaking config.
+
+- **[Recommended — run as a macOS service](#run-as-a-macos-service-recommended)**
+  via a LaunchAgent. Survives reboots, starts on demand, controlled with the
+  `bin/` scripts.
+- **[Quick / foreground — `npm start`](#run-in-the-foreground-npm-start)**.
+  Useful when you're iterating on config files, want logs in your current
+  terminal, or are running on a non-mac box.
+
+Both modes share the same CLI flags, env vars, and `~/.mobile-api-console.json`
+config file documented below.
+
+### Run in the foreground (`npm start`)
 
 ```sh
 cd /path/to/mobile-api-console
@@ -180,7 +180,7 @@ Then open:
 http://localhost:3957
 ```
 
-### Demo mode (no simulator required)
+#### Demo mode (no simulator required)
 
 ```sh
 npm run demo
@@ -189,27 +189,92 @@ npm run demo
 ### CLI options
 
 ```sh
+# iOS
 npm start -- --process ExampleMobileApp
 npm start -- --predicate 'process == "ExampleMobileApp"'
 npm start -- --simulator booted
+
+# Android
+npm start -- --android-app com.example.mobile
+npm start -- --android-tag API_CURL
+npm start -- --android-device emulator-5554
+npm start -- --adb-path /opt/homebrew/share/android-sdk/platform-tools/adb
+
+# Source selection (auto = pick first available; defaults to auto)
+npm start -- --source ios
+npm start -- --source android
+npm start -- --source demo
+
+# General
 npm start -- --port 3957
 ```
 
 ### Environment variables
 
 ```sh
+# iOS
 MOBILE_API_CONSOLE_PROCESS=ExampleMobileApp npm start
 MOBILE_API_CONSOLE_PREDICATE='subsystem == "com.example.mobile" AND category == "api-console"' npm start
-MOBILE_API_CONSOLE_PORT=3957 npm start
 MOBILE_API_CONSOLE_SIMULATOR=booted npm start
+
+# Android
+MOBILE_API_CONSOLE_ANDROID_APP_ID=com.example.mobile npm start
+MOBILE_API_CONSOLE_ANDROID_LOG_TAG=API_CURL npm start
+MOBILE_API_CONSOLE_ANDROID_DEVICE=emulator-5554 npm start
+ADB_PATH=/opt/homebrew/share/android-sdk/platform-tools/adb npm start
+
+# Source selection
+MOBILE_API_CONSOLE_SOURCE=android npm start
+
+# General
+MOBILE_API_CONSOLE_PORT=3957 npm start
 MOBILE_API_CONSOLE_DEMO=1 npm start
 MOBILE_API_CONSOLE_DB="$HOME/Library/Application Support/mobile-api-console/data.db" npm start
 ```
 
-## Run as a macOS service (optional)
+### Per-developer config file (`~/.mobile-api-console.json`)
+
+For real bundle ids, Logcat tags, and device serials — anything you don't want
+to type on every launch and definitely don't want committed to the repo —
+drop a JSON file at `~/.mobile-api-console.json` (also picked up from the
+current working directory, and from `$MOBILE_API_CONSOLE_CONFIG` if you set
+it). This file is gitignored.
+
+```json
+{
+  "defaultSource": "auto",
+  "ios": {
+    "processName": "MyAppName",
+    "subsystem": "com.mycompany.myapp",
+    "category": "api-console"
+  },
+  "android": {
+    "applicationId": "com.mycompany.myapp",
+    "logTag": "API_CURL",
+    "deviceSerial": null,
+    "adbPath": null
+  }
+}
+```
+
+Resolution order is **CLI flag > environment variable > config file > public
+default**, so any value can be overridden ad-hoc without editing the file.
+
+When moving the tool to an Android developer's machine, the only setup they
+need (beyond `npm install`) is:
+
+1. Create `~/.mobile-api-console.json` with their `applicationId` and Logcat
+   tag (the defaults are placeholders for the public repo).
+2. Ensure `adb` is on `PATH`, or set `ADB_PATH` / `ANDROID_HOME` in the env or
+   under `android.adbPath` in the config file.
+3. Start the console — either `npm start` for a foreground run, or install
+   the LaunchAgent below for the always-on flow.
+
+## Run as a macOS service (recommended)
 
 Installing a LaunchAgent keeps the console running in the background and
-restarts it on reboot.
+restarts it on reboot, so `http://localhost:3957` is always reachable. This
+is the setup we use day-to-day.
 
 ### 1. Create the LaunchAgent plist
 
@@ -240,6 +305,11 @@ your machine (`echo "$HOME"` and `which node`):
         <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
         <key>MOBILE_API_CONSOLE_PORT</key>
         <string>3957</string>
+        <!-- Optional: helps the console auto-detect Android when `adb` is
+             not on PATH. Equivalent to setting `android.adbPath` in
+             ~/.mobile-api-console.json. -->
+        <key>ANDROID_HOME</key>
+        <string>__YOUR_HOME__/Library/Android/sdk</string>
     </dict>
 
     <key>RunAtLoad</key>
@@ -266,11 +336,44 @@ your machine (`echo "$HOME"` and `which node`):
 ~/mobile-api-console/bin/uninstall-service   # bootout + delete plist
 ```
 
+After editing the plist (e.g. adding `ANDROID_HOME` or swapping `WorkingDirectory`),
+run `bin/stop-service` then `bin/start-service` so launchd re-reads it.
+
+#### Using a custom service label
+
+The scripts assume the LaunchAgent label is `local.mobile-api-console.daemon`.
+If your plist uses a different label, export it once:
+
+```sh
+export MOBILE_API_CONSOLE_SERVICE_LABEL=dev.mycompany-api-console.daemon
+```
+
+All four `bin/*-service` scripts honour this override. Add the export to your
+shell profile to make it permanent.
+
 ### 3. Logs
 
 ```text
 ~/Library/Logs/mobile-api-console.out.log
 ~/Library/Logs/mobile-api-console.err.log
+```
+
+Tail them with:
+
+```sh
+tail -f ~/Library/Logs/mobile-api-console.out.log
+```
+
+### 4. Quick switching while the service runs
+
+The header dropdown in the UI swaps sources live — no need to restart the
+service when you move between the iOS Simulator, an Android emulator, and
+demo mode. The chosen source is also exposed via:
+
+```sh
+curl http://localhost:3957/api/sources                              # current + available
+curl -X POST -H 'Content-Type: application/json' \
+     -d '{"kind":"android"}' http://localhost:3957/api/source        # switch live
 ```
 
 ## Project layout
@@ -281,11 +384,13 @@ mobile-api-console/
 ├── bin/                    # service control scripts + node entry point
 ├── public/                 # static UI (HTML / CSS / JS)
 ├── src/
-│   ├── config.js           # CLI + env var resolution
-│   ├── eventStore.js       # in-memory event store with SSE notifications
+│   ├── config.js           # CLI / env / ~/.mobile-api-console.json resolution
+│   ├── platform.js         # xcrun + adb detection
+│   ├── sourceManager.js    # owns the live source + parser, supports swap
+│   ├── eventStore.js       # session-scoped event store with SSE notifications
 │   ├── sseHub.js           # Server-Sent Events hub
-│   ├── logSource/          # SimulatorLogStream + DemoLogSource
-│   └── parsers/            # mobileNetworkParser: turns log lines into events
+│   ├── logSource/          # SimulatorLogStream, AdbLogcatStream, DemoLogSource
+│   └── parsers/            # mobileNetworkParser (iOS) + androidApiCurlParser
 ├── test/                   # node --test
 ├── server.js               # HTTP server + wiring
 └── package.json
@@ -303,14 +408,25 @@ MIT. See [LICENSE](LICENSE).
 
 ## Troubleshooting
 
-- **"No API calls yet" in the UI** — make sure the iOS app is built in `DEBUG`,
-  the Simulator is booted (`xcrun simctl list devices | grep Booted`), and the
-  app is using the `Logger(subsystem: "com.example.mobile", category:
+- **"No API calls yet" in the UI (iOS)** — make sure the iOS app is built in
+  `DEBUG`, the Simulator is booted (`xcrun simctl list devices | grep Booted`),
+  and the app is using the `Logger(subsystem: "com.example.mobile", category:
   "api-console")` shown above.
-- **Lines appear but blocks aren't grouped** — check that each block starts
-  with one of the recognised headers (`===== REQUEST =====`, etc.) and ends
-  with a separator line of `=` of length 8 or more or with the next block
+- **"No API calls yet" in the UI (Android)** — make sure the Android app is
+  built in `debug`, a device shows in `adb devices`, and `CurlLogger` is being
+  called from your OkHttp interceptor. Check `adb logcat -v threadtime API_CURL:D \*:S`
+  in a separate terminal to confirm the lines are reaching logcat.
+- **Lines appear but blocks aren't grouped (iOS)** — check that each block
+  starts with one of the recognised headers (`===== REQUEST =====`, etc.) and
+  ends with a separator line of `=` of length 8 or more or with the next block
   header.
+- **Android events show no response body** — by design. The Android adapter
+  reads what the app logs via `CurlLogger`, which only emits the request side
+  (status code via the summary line). To see response bodies, extend
+  `CurlLogger` to log them and add a marker the parser can recognise.
+- **Source dropdown only shows one platform** — the other tool isn't on `PATH`.
+  For Android, export `ANDROID_HOME` or `ADB_PATH`. For iOS you need a full
+  Xcode install (the Command Line Tools alone are not enough for `simctl`).
 - **Port 3957 already in use** — pass `--port` or set `MOBILE_API_CONSOLE_PORT`.
 - **Service won't start** — `~/mobile-api-console/bin/status-service`, then check
   `~/Library/Logs/mobile-api-console.err.log`.

@@ -3,6 +3,31 @@
 This project is local-first. It stores captured API sessions in a SQLite
 database and serves the UI on localhost.
 
+## How we run it
+
+For daily use we run the console as a **macOS LaunchAgent** so it's always
+reachable at `http://localhost:3957` without keeping a terminal open. See
+[Run as a macOS service](../README.md#run-as-a-macos-service-recommended) in
+the README for the plist, control scripts, and log paths.
+
+`npm start` (foreground) remains supported for quick checks, config
+iteration, or when running on a non-mac box. Both modes share the same
+config (`~/.mobile-api-console.json`), CLI flags, env vars, and SQLite
+database.
+
+When the LaunchAgent's plist changes (e.g. you add `ANDROID_HOME` or move
+the working directory), reload the service so launchd re-reads it:
+
+```sh
+~/mobile-api-console/bin/stop-service
+~/mobile-api-console/bin/start-service
+```
+
+The header dropdown in the UI switches between iOS / Android / Demo live, so
+under normal conditions you almost never need to restart the service —
+restart only when changing the plist itself, the port, or the on-disk
+config.
+
 ## Database Location
 
 By default the database is stored at:
@@ -27,7 +52,7 @@ The parent directory is created automatically.
 
 ## Service Logs
 
-When running through the optional LaunchAgent, stdout and stderr are written to:
+When running through the LaunchAgent, stdout and stderr are written to:
 
 ```text
 ~/Library/Logs/mobile-api-console.out.log

@@ -8,12 +8,15 @@ const state = {
   selectedId: null,
   activeTab: "response",
   source: null,
+  sources: null,
   config: null
 };
 
 const els = {
   sourceDot: document.getElementById("sourceDot"),
   sourceText: document.getElementById("sourceText"),
+  sourcePicker: document.getElementById("sourcePicker"),
+  emptyStateHint: document.getElementById("emptyStateHint"),
   restartButton: document.getElementById("restartButton"),
   clearButton: document.getElementById("clearButton"),
   searchInput: document.getElementById("searchInput"),
@@ -55,6 +58,26 @@ function bindUi() {
   els.restartButton.addEventListener("click", async () => {
     await fetch("/api/restart", { method: "POST" });
   });
+
+  if (els.sourcePicker) {
+    els.sourcePicker.addEventListener("change", async () => {
+      const value = els.sourcePicker.value;
+      if (!value) return;
+      const [kind, deviceSerial = null] = value.split("::");
+      const previous = state.sources?.current;
+      const body = { kind };
+      if (kind === "android") body.deviceSerial = deviceSerial;
+      const response = await fetch("/api/source", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body)
+      });
+      if (!response.ok) {
+        // Revert UI selection on failure.
+        renderSourcePicker(previous);
+      }
+    });
+  }
 
   els.sessionPicker.addEventListener("change", async () => {
     const id = Number.parseInt(els.sessionPicker.value, 10);
@@ -106,6 +129,7 @@ function connectEvents() {
     state.currentSessionId = payload.currentSession ? payload.currentSession.id : null;
     state.activeSessionId = state.currentSessionId;
     state.source = payload.source;
+    state.sources = payload.sources || null;
     state.config = payload.config;
     selectLatestIfNeeded();
     render();
@@ -151,6 +175,12 @@ function connectEvents() {
     renderSource();
   });
 
+  eventSource.addEventListener("source-changed", (message) => {
+    state.sources = JSON.parse(message.data);
+    renderSourcePicker();
+    renderEmptyHint();
+  });
+
   eventSource.onerror = () => {
     state.source = {
       running: false,
@@ -178,10 +208,60 @@ function sortEvents() {
 function render() {
   sortEvents();
   renderSource();
+  renderSourcePicker();
+  renderEmptyHint();
   renderSessionPicker();
   renderMethodFilter();
   renderList();
   renderDetail();
+}
+
+function renderSourcePicker(snapshot) {
+  if (!els.sourcePicker) return;
+  const sources = snapshot || state.sources;
+  if (!sources) {
+    els.sourcePicker.innerHTML = "";
+    els.sourcePicker.disabled = true;
+    return;
+  }
+
+  const options = [];
+  for (const entry of sources.available || []) {
+    if (entry.kind === "android" && entry.devices && entry.devices.length > 0) {
+      const single = entry.devices.length === 1;
+      for (const device of entry.devices) {
+        const label = single ? (entry.label || `Android · ${device.label}`) : `Android · ${device.label}`;
+        options.push({ value: `android::${device.serial}`, label });
+      }
+    } else if (entry.kind === "android") {
+      options.push({ value: "android::", label: entry.label || "Android" });
+    } else {
+      options.push({ value: entry.kind, label: entry.label || entry.kind });
+    }
+  }
+
+  const current = sources.current || { kind: "", opts: {} };
+  const currentValue = current.kind === "android"
+    ? `android::${current.opts?.deviceSerial || ""}`
+    : (current.kind || "");
+
+  els.sourcePicker.innerHTML = options.map((option) => {
+    const selected = option.value === currentValue ? " selected" : "";
+    return `<option value="${escapeHtml(option.value)}"${selected}>${escapeHtml(option.label)}</option>`;
+  }).join("");
+  els.sourcePicker.disabled = options.length <= 1;
+}
+
+function renderEmptyHint() {
+  if (!els.emptyStateHint) return;
+  const kind = state.sources?.current?.kind || "";
+  if (kind === "android") {
+    els.emptyStateHint.textContent = "Run the Android app on the attached device or emulator and trigger an API request.";
+  } else if (kind === "demo") {
+    els.emptyStateHint.textContent = "Demo source is streaming synthetic requests every couple of seconds.";
+  } else {
+    els.emptyStateHint.textContent = "Run the iOS app in a booted simulator and trigger an API request.";
+  }
 }
 
 async function switchToSession(id) {
@@ -303,12 +383,15 @@ function renderDetail() {
 
   if (isResponse) {
     renderResponseSummary(event);
-    els.responseBody.textContent = event.response
-      ? formatBody(event.response.body)
-      : "No response captured yet.";
+    els.responseBody.textContent = responseBodyText(event);
   } else {
     els.detailPre.textContent = currentTabText(event);
   }
+}
+
+function responseBodyText(event) {
+  if (!event.response) return "No response captured yet.";
+  return formatBody(event.response.body);
 }
 
 function renderResponseSummary(event) {

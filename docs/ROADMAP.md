@@ -8,19 +8,21 @@ turn them into issues or milestones.
 
 ### Android and Android Studio
 
-- Add an Android log source backed by `adb logcat`.
-- Support emulator and physical-device selection.
-- Filter by package name, tag, or structured marker.
-- Define an Android logging helper that emits the same block markers already
-  used by the iOS parser:
-  - `===== REQUEST =====`
-  - `===== MULTIPART REQUEST =====`
-  - `===== CURL COMMAND =====`
-  - `===== RESPONSE =====`
-- Keep parsed events platform-neutral so iOS and Android requests appear in the
-  same UI model.
-- Store platform metadata on each session, such as `ios-simulator`,
-  `android-emulator`, device id, package name, and log predicate.
+- [x] Android log source backed by `adb logcat` (`AdbLogcatStream`).
+- [x] Emulator + physical-device selection (multi-device dropdown).
+- [x] Filter by tag (`--android-tag`, defaults to `API_CURL`).
+- [x] Header dropdown switches between iOS / Android / Demo at runtime.
+- [x] Platform metadata recorded on each session (`ios-simulator`,
+  `android-emulator`, `android-device`, with package name, log tag, and device
+  serial).
+- [ ] Parse OkHttp `HttpLoggingInterceptor` lines as a fallback for apps that
+  don't ship their own `CurlLogger`.
+- [ ] Capture response headers + body on Android. The current `API_CURL` format
+  only emits the request side and a status code; extending `CurlLogger` to log
+  a response block would let the Response tab work on Android.
+- [ ] Reuse the iOS `===== REQUEST/CURL COMMAND/RESPONSE =====` markers on
+  Android too, so Android apps that prefer the iOS-style block format can use
+  the existing `MobileNetworkParser` instead of `AndroidApiCurlParser`.
 
 ### Source Health
 

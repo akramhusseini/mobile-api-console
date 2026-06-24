@@ -28,18 +28,15 @@ class LineBuffer {
   }
 }
 
-function isNoisySimulatorWarning(line) {
-  return line.includes("getpwuid_r did not find a match for uid");
-}
-
-class SimulatorLogStream extends LogSource {
-  constructor({ simulator, predicate }) {
+class AdbLogcatStream extends LogSource {
+  constructor({ adbPath = "adb", deviceSerial = null, logTag = "API_CURL" } = {}) {
     super({
-      mode: "simulator",
-      extras: { predicate, simulator }
+      mode: "android",
+      extras: { deviceSerial, logTag }
     });
-    this.simulator = simulator;
-    this.predicate = predicate;
+    this.adbPath = adbPath;
+    this.deviceSerial = deviceSerial;
+    this.logTag = logTag;
     this.child = null;
     this.stopping = false;
     this.restartTimer = null;
@@ -52,37 +49,27 @@ class SimulatorLogStream extends LogSource {
     this.stopping = false;
     this.clearRestart();
 
-    const args = [
-      "simctl",
-      "spawn",
-      this.simulator,
-      "log",
-      "stream",
-      "--style",
-      "compact",
-      "--level",
-      "debug",
-      "--predicate",
-      this.predicate
-    ];
+    // Reset position to "now" so we don't replay months of old log lines on
+    // every restart. `-T 1` says "deliver entries from 1 second ago onwards".
+    const args = [];
+    if (this.deviceSerial) args.push("-s", this.deviceSerial);
+    args.push("logcat", "-v", "threadtime", "-T", "1", `${this.logTag}:D`, "*:S");
 
-    const child = spawn("xcrun", args, {
+    const child = spawn(this.adbPath, args, {
       stdio: ["ignore", "pipe", "pipe"]
     });
     this.child = child;
 
     this.setStatus({
       running: true,
-      message: `Streaming ${this.simulator} simulator logs`
+      message: this.deviceSerial
+        ? `Streaming ${this.logTag} from ${this.deviceSerial}`
+        : `Streaming ${this.logTag} from default adb device`
     });
 
     const stdout = new LineBuffer((line) => this.emit("line", line));
     const stderr = new LineBuffer((line) => {
       if (!line.trim()) return;
-      if (isNoisySimulatorWarning(line)) {
-        this.emit("stderr", line);
-        return;
-      }
       this.status.lastError = line;
       this.emit("stderr", line);
       this.setStatus({
@@ -98,7 +85,7 @@ class SimulatorLogStream extends LogSource {
       if (this.child !== child) return; // a newer child has taken over
       this.setStatus({
         running: false,
-        message: `Unable to start xcrun: ${error.message}`,
+        message: `Unable to start ${this.adbPath}: ${error.message}`,
         lastError: error.message
       });
       this.scheduleRestart();
@@ -107,7 +94,10 @@ class SimulatorLogStream extends LogSource {
     child.on("exit", (code, signal) => {
       stdout.flush();
       stderr.flush();
-      if (this.child !== child) return; // restart already spawned a newer child
+      // A restart may already have spawned a newer child. Don't touch
+      // this.child or rebroadcast status in that case — the new child owns
+      // those now.
+      if (this.child !== child) return;
 
       if (this.killTimer) {
         clearTimeout(this.killTimer);
@@ -118,12 +108,10 @@ class SimulatorLogStream extends LogSource {
       const suffix = signal ? `signal ${signal}` : `code ${code}`;
       this.setStatus({
         running: false,
-        message: this.stopping ? "Stopped" : `Log stream ended (${suffix})`
+        message: this.stopping ? "Stopped" : `adb logcat ended (${suffix})`
       });
 
-      if (!this.stopping) {
-        this.scheduleRestart();
-      }
+      if (!this.stopping) this.scheduleRestart();
     });
   }
 
@@ -138,9 +126,7 @@ class SimulatorLogStream extends LogSource {
     const child = this.child;
     this.child.kill("SIGTERM");
     this.killTimer = setTimeout(() => {
-      if (this.child === child) {
-        child.kill("SIGKILL");
-      }
+      if (this.child === child) child.kill("SIGKILL");
     }, 750);
     this.killTimer.unref?.();
   }
@@ -168,4 +154,4 @@ class SimulatorLogStream extends LogSource {
   }
 }
 
-module.exports = { SimulatorLogStream };
+module.exports = { AdbLogcatStream };

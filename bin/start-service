@@ -1,7 +1,7 @@
 #!/usr/bin/env zsh
 set -euo pipefail
 
-label="local.mobile-api-console.daemon"
+label="${MOBILE_API_CONSOLE_SERVICE_LABEL:-local.mobile-api-console.daemon}"
 domain="gui/$(id -u)"
 plist="$HOME/Library/LaunchAgents/$label.plist"
 url="http://localhost:3957"

@@ -9,57 +9,70 @@ const { URL } = require("node:url");
 const { buildConfig } = require("./src/config");
 const { EventStore } = require("./src/eventStore");
 const { SseHub } = require("./src/sseHub");
-const { MobileNetworkParser } = require("./src/parsers/mobileNetworkParser");
-const { SimulatorLogStream } = require("./src/logSource/simulatorLogStream");
-const { DemoLogSource } = require("./src/logSource/demoLogSource");
 const { SqliteStorage } = require("./src/storage/sqliteStorage");
+const { SourceManager } = require("./src/sourceManager");
 
 const config = buildConfig();
 const rootDir = __dirname;
 const publicDir = path.join(rootDir, config.publicDir);
-const storage = new SqliteStorage({ databasePath: config.databasePath }).init();
-const sourceKind = config.demo || config.noStream ? "demo" : "simulator";
-const store = new EventStore({
-  storage,
-  sourceKind,
-  sourceMetadata: {
-    simulator: config.simulator,
-    predicate: config.predicate,
-    processName: config.processName
-  }
-});
-store.init();
-const hub = new SseHub();
-const parser = new MobileNetworkParser({ processName: config.processName });
-const source = config.demo || config.noStream
-  ? new DemoLogSource()
-  : new SimulatorLogStream({
-    simulator: config.simulator,
-    predicate: config.predicate
-  });
+
 let shuttingDown = false;
+let server;
+let storage;
+let store;
+let sourceManager;
+let hub;
 
-store.on("upsert", (event) => hub.broadcast("event-upsert", event));
-store.on("session-start", (payload) => hub.broadcast("session-start", payload));
-
-source.on("line", (line) => {
-  const actions = parser.pushLine(line);
-  for (const action of actions) {
-    if (action.type === "upsert") store.upsert(action.event);
-    if (action.type === "error") store.addError(action.message, action.rawLine);
-    if (action.type === "clear") store.clear(action.reason);
-  }
+main().catch((error) => {
+  console.error(`Mobile API Console failed to start: ${error.message}`);
+  process.exit(1);
 });
 
-source.on("stderr", (line) => {
-  hub.broadcast("source-stderr", { line });
-});
+async function main() {
+  storage = new SqliteStorage({ databasePath: config.databasePath }).init();
+  sourceManager = new SourceManager({ config });
+  await sourceManager.detect();
 
-source.on("status", (status) => {
-  hub.broadcast("source-status", status);
-});
+  const initialKind = sourceManager.resolveInitialKind();
+  const initialOpts = sourceManager.optsForKind(initialKind);
+  const initialMetadata = sourceManager.kindToSessionMetadata(initialKind, initialOpts);
 
-const server = http.createServer(async (req, res) => {
+  store = new EventStore({
+    storage,
+    sourceKind: initialMetadata.sourceKind,
+    sourceMetadata: initialMetadata.sourceMetadata
+  });
+  store.init();
+  hub = new SseHub();
+
+  sourceManager.store = store;
+  sourceManager.hub = hub;
+
+  store.on("upsert", (event) => hub.broadcast("event-upsert", event));
+  store.on("session-start", (payload) => hub.broadcast("session-start", payload));
+  sourceManager.on("changed", (payload) => hub.broadcast("source-changed", payload));
+
+  server = http.createServer(handleRequest);
+  server.on("error", (error) => {
+    console.error(`Unable to start Mobile API Console on port ${config.port}: ${error.message}`);
+    sourceManager.stop();
+    process.exitCode = 1;
+  });
+
+  await new Promise((resolve) => {
+    server.listen(config.port, "127.0.0.1", () => {
+      console.log(`Mobile API Console running at http://localhost:${config.port}`);
+      console.log(`Initial source: ${initialKind}${initialOpts.deviceSerial ? ` (device ${initialOpts.deviceSerial})` : ""}`);
+      if (config.localConfigPath) {
+        console.log(`Loaded local config: ${config.localConfigPath}`);
+      }
+      sourceManager.start();
+      resolve();
+    });
+  });
+}
+
+async function handleRequest(req, res) {
   try {
     const requestUrl = new URL(req.url, `http://${req.headers.host || "localhost"}`);
 
@@ -69,7 +82,8 @@ const server = http.createServer(async (req, res) => {
         events: store.snapshot(),
         currentSession: store.currentSession(),
         sessions: store.recentSessions(),
-        source: source.status,
+        source: sourceManager.status,
+        sources: sourceManager.list(),
         config: publicConfig()
       });
       return;
@@ -84,7 +98,8 @@ const server = http.createServer(async (req, res) => {
         currentSession: store.currentSession(),
         session,
         sessions: store.recentSessions(),
-        source: source.status,
+        source: sourceManager.status,
+        sources: sourceManager.list(),
         config: publicConfig()
       });
     }
@@ -117,19 +132,53 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (req.method === "POST" && requestUrl.pathname === "/api/clear") {
-      parser.reset();
+      sourceManager.resetParser();
       store.clear("manual");
       return sendJson(res, { ok: true });
     }
 
     if (req.method === "POST" && requestUrl.pathname === "/api/restart") {
-      if (typeof source.restart === "function") source.restart();
+      sourceManager.restart();
       return sendJson(res, { ok: true });
+    }
+
+    if (requestUrl.pathname === "/api/sources") {
+      if (req.method === "POST") {
+        const body = await readJsonBody(req);
+        const kind = String(body.kind || "").toLowerCase();
+        if (!["ios", "android", "demo"].includes(kind)) {
+          return sendJson(res, { error: "Unknown source kind" }, 400);
+        }
+        const deviceSerial = body.deviceSerial || null;
+        try {
+          sourceManager.switchTo(kind, kind === "android" ? { deviceSerial } : {});
+        } catch (error) {
+          return sendJson(res, { error: error.message }, 400);
+        }
+        return sendJson(res, { ok: true, sources: sourceManager.list() });
+      }
+
+      // Re-probe detection on every GET so a newly attached device shows up.
+      await sourceManager.detect();
+      return sendJson(res, sourceManager.list());
+    }
+
+    if (req.method === "POST" && requestUrl.pathname === "/api/source") {
+      // Legacy alias for POST /api/sources.
+      const body = await readJsonBody(req);
+      const kind = String(body.kind || "").toLowerCase();
+      if (!["ios", "android", "demo"].includes(kind)) {
+        return sendJson(res, { error: "Unknown source kind" }, 400);
+      }
+      const deviceSerial = body.deviceSerial || null;
+      sourceManager.switchTo(kind, kind === "android" ? { deviceSerial } : {});
+      return sendJson(res, { ok: true, sources: sourceManager.list() });
     }
 
     if (requestUrl.pathname === "/api/config") {
       return sendJson(res, {
-        source: source.status,
+        source: sourceManager.status,
+        sources: sourceManager.list(),
         config: publicConfig()
       });
     }
@@ -138,23 +187,7 @@ const server = http.createServer(async (req, res) => {
   } catch (error) {
     sendJson(res, { error: error.message }, 500);
   }
-});
-
-server.on("error", (error) => {
-  console.error(`Unable to start Mobile API Console on port ${config.port}: ${error.message}`);
-  if (typeof source.stop === "function") source.stop();
-  process.exitCode = 1;
-});
-
-server.listen(config.port, "127.0.0.1", () => {
-  const mode = config.demo || config.noStream ? "demo" : "simulator";
-  console.log(`Mobile API Console running at http://localhost:${config.port}`);
-  console.log(`Mode: ${mode}`);
-  if (!config.demo && !config.noStream) {
-    console.log(`Predicate: ${config.predicate}`);
-  }
-  source.start();
-});
+}
 
 process.once("SIGINT", shutdown);
 process.once("SIGTERM", shutdown);
@@ -166,16 +199,16 @@ function shutdown() {
   }
 
   shuttingDown = true;
-  hub.closeAll();
+  if (hub) hub.closeAll();
 
-  if (typeof source.stop === "function") source.stop();
+  if (sourceManager) sourceManager.stop();
   try {
-    store.closeCurrentSession();
-    storage.close();
+    if (store) store.closeCurrentSession();
+    if (storage) storage.close();
   } catch {
     // best-effort during shutdown
   }
-  server.close(() => process.exit(0));
+  if (server) server.close(() => process.exit(0));
 
   const fallback = setTimeout(() => process.exit(0), 1500);
   fallback.unref?.();
@@ -196,7 +229,13 @@ function publicConfig() {
     predicate: config.predicate,
     simulator: config.simulator,
     demo: config.demo,
-    noStream: config.noStream
+    noStream: config.noStream,
+    android: {
+      applicationId: config.android.applicationId,
+      logTag: config.android.logTag,
+      deviceSerial: config.android.deviceSerial
+    },
+    defaultSource: config.defaultSource
   };
 }
 
@@ -206,6 +245,29 @@ function sendJson(res, payload, statusCode = 200) {
     "Cache-Control": "no-cache"
   });
   res.end(JSON.stringify(payload));
+}
+
+function readJsonBody(req, { maxBytes = 64 * 1024 } = {}) {
+  return new Promise((resolve, reject) => {
+    let received = 0;
+    const chunks = [];
+    req.on("data", (chunk) => {
+      received += chunk.length;
+      if (received > maxBytes) {
+        reject(new Error("Request body too large"));
+        req.destroy();
+        return;
+      }
+      chunks.push(chunk);
+    });
+    req.on("error", reject);
+    req.on("end", () => {
+      const raw = Buffer.concat(chunks).toString("utf8").trim();
+      if (!raw) return resolve({});
+      try { resolve(JSON.parse(raw)); }
+      catch (error) { reject(new Error(`Invalid JSON body: ${error.message}`)); }
+    });
+  });
 }
 
 function serveStatic(pathname, res) {

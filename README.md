@@ -18,9 +18,11 @@ Electron wrapper and no frontend build step. The only runtime package is
   when both iOS and Android are available, both record continuously and the
   header dropdown selects which platform history to view.
 - Per-call view: status, method, and full URL are pinned in the detail
-  header, with tabs for Preview (pretty-printed response body), Headers
-  (request and response headers side by side), Payload (request body),
-  Response (raw response body), cURL, Errors, and Raw log lines.
+  header, with tabs for Preview (interactive JSON tree with type-aware
+  colors, collapsible `{}` and `[]` nodes, and bracket-pair highlight),
+  Headers (request and response headers side by side), Payload (request
+  body, also rendered as a tree when JSON), Response (raw response
+  body), cURL, Errors, and Raw log lines.
 - Search and filter by URL, status, method.
 - Demo mode for offline development of the UI itself.
 - SQLite-backed session history so recent captures remain available after a

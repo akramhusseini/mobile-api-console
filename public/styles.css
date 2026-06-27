@@ -499,6 +499,111 @@ button:focus-visible {
   font-size: 12px;
 }
 
+.json-tree {
+  --jt-key: #7cc4ff;
+  --jt-string: #a8e6c1;
+  --jt-number: #ffbd5a;
+  --jt-bool: #d18fff;
+  --jt-null: #8a98aa;
+  --jt-punct: #5f6c80;
+  --jt-bracket-obj: #ffc18a;
+  --jt-bracket-arr: #7cc4ff;
+  --jt-index: #6a7888;
+  --jt-summary: #7e8d9f;
+  --jt-guide: rgba(255, 255, 255, 0.05);
+  --jt-match-bg: rgba(255, 224, 102, 0.16);
+  --jt-match-border: rgba(255, 224, 102, 0.55);
+  padding: 14px 20px 40px;
+  font: 12.5px/1.55 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  color: var(--text);
+}
+
+.json-line {
+  display: block;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.json-children {
+  margin-left: 6px;
+  padding-left: 8px;
+  border-left: 1px solid var(--jt-guide);
+}
+
+.json-caret {
+  display: inline-block;
+  width: 12px;
+  margin-right: 2px;
+  color: var(--muted);
+  user-select: none;
+  cursor: pointer;
+  text-align: center;
+  font-size: 10px;
+}
+
+.json-caret::before {
+  content: "▾";
+}
+
+.json-node[data-collapsed="true"] > .json-line--header > .json-caret::before,
+.json-node[data-collapsed="true"] > .json-caret::before {
+  content: "▸";
+}
+
+.json-caret--hidden {
+  visibility: hidden;
+  cursor: default;
+}
+
+.json-caret--hidden::before {
+  content: "▾";
+}
+
+.json-node[data-collapsed="false"] > .json-line--header > .json-summary,
+.json-node[data-collapsed="false"] > .json-line--header > .json-bracket--inline,
+.json-node[data-collapsed="false"] > .json-line--header > .json-comma--inline {
+  display: none;
+}
+
+.json-node[data-collapsed="true"] > .json-children,
+.json-node[data-collapsed="true"] > .json-line--close {
+  display: none;
+}
+
+.json-summary {
+  color: var(--jt-summary);
+  font-style: italic;
+}
+
+.json-bracket {
+  cursor: pointer;
+  border-radius: 2px;
+  padding: 0 1px;
+}
+
+.json-bracket--object { color: var(--jt-bracket-obj); }
+.json-bracket--array { color: var(--jt-bracket-arr); }
+
+.json-bracket--empty {
+  cursor: default;
+}
+
+.json-bracket--match {
+  background: var(--jt-match-bg);
+  outline: 1px solid var(--jt-match-border);
+}
+
+.json-key { color: var(--jt-key); }
+.json-string { color: var(--jt-string); word-break: break-word; }
+.json-number { color: var(--jt-number); }
+.json-bool { color: var(--jt-bool); }
+.json-null { color: var(--jt-null); font-style: italic; }
+.json-punct { color: var(--jt-punct); }
+.json-index {
+  color: var(--jt-index);
+  font-variant-numeric: tabular-nums;
+}
+
 @media (max-width: 920px) {
   .toolbar {
     grid-template-columns: 1fr 1fr;

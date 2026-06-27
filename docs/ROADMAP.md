@@ -92,21 +92,23 @@ even when the browser is closed or the UI is looking at another platform.
 
 ## JSON and Body Viewer
 
-- Add syntax coloring for JSON response and request bodies.
-- Add collapsible JSON nodes for large payloads.
-- Preserve raw text for non-JSON bodies.
-- Add copy actions for:
-  - full body
+- [x] Add syntax coloring for JSON response and request bodies.
+- [x] Add collapsible JSON nodes for large payloads (alt-click recursively
+  expands or collapses a whole subtree).
+- [x] Preserve raw text for non-JSON bodies (Preview falls back to text;
+  Response always shows the raw body).
+- [x] Bracket-pair hover highlight on open and close.
+- [ ] Add copy actions for:
+  - full body (covered by the existing Copy button)
   - selected JSON node
   - JSON path
   - redacted body
-- Add bracket-pair interaction:
-  - clicking `{`, `[`, or `(` highlights the matching closing bracket
-  - clicking a bracket highlights the full bracketed range
-  - hovering a bracket previews the pair
+- [ ] Bracket-pair extras:
   - keyboard shortcuts jump between matching brackets
-- Add large-body safeguards so rendering very large responses does not freeze
-  the browser.
+  - clicking a bracket highlights the full bracketed range (vs. just the
+    pair partner)
+- [ ] Add large-body safeguards so rendering very large responses does not
+  freeze the browser (virtualization, string truncation with "Show more").
 
 ## Storage, Retention, and Disk Space
 

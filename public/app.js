@@ -465,7 +465,7 @@ function renderTabContent(event) {
 
   const tab = state.activeTab;
   if (tab === "preview") {
-    renderTextTab(container, formatBody(event.response?.body), "No response captured yet.", event.response);
+    renderBodyTab(container, event.response?.body, "No response captured yet.", event.response);
     return;
   }
   if (tab === "headers") {
@@ -473,7 +473,7 @@ function renderTabContent(event) {
     return;
   }
   if (tab === "payload") {
-    renderTextTab(container, formatBody(event.request?.body), "No request body captured.", event.request);
+    renderBodyTab(container, event.request?.body, "No request body captured.", event.request);
     return;
   }
   if (tab === "response") {
@@ -507,6 +507,40 @@ function renderTextTab(container, text, emptyMessage, hasContent) {
   pre.className = "detail-pre";
   pre.textContent = text;
   container.appendChild(pre);
+}
+
+function renderBodyTab(container, body, emptyMessage, ownerPresent) {
+  if (!ownerPresent || !body) {
+    const empty = document.createElement("div");
+    empty.className = "tab-empty";
+    empty.textContent = emptyMessage;
+    container.appendChild(empty);
+    return;
+  }
+
+  const parsed = tryParseJson(body);
+  if (parsed.ok && typeof window.renderJsonTree === "function") {
+    container.appendChild(window.renderJsonTree(parsed.value));
+    return;
+  }
+
+  const pre = document.createElement("pre");
+  pre.className = "detail-pre";
+  pre.textContent = body;
+  container.appendChild(pre);
+}
+
+function tryParseJson(body) {
+  if (typeof body !== "string") return { ok: false };
+  const trimmed = body.trim();
+  if (!trimmed) return { ok: false };
+  const first = trimmed[0];
+  if (first !== "{" && first !== "[") return { ok: false };
+  try {
+    return { ok: true, value: JSON.parse(trimmed) };
+  } catch {
+    return { ok: false };
+  }
 }
 
 function renderHeadersTab(container, event) {

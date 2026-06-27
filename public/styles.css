@@ -12,6 +12,10 @@
   --danger: #ff5c6c;
   --danger-soft: rgba(255, 92, 108, 0.16);
   --focus: rgba(75, 163, 255, 0.34);
+  --row-hover-bg: rgba(75, 163, 255, 0.04);
+  --row-active-bg: rgba(75, 163, 255, 0.12);
+  --row-active-border: var(--accent);
+  --row-active-text: #ffffff;
   color-scheme: dark;
 }
 
@@ -223,17 +227,27 @@ button:focus-visible {
   grid-template-columns: 62px minmax(0, 1fr) 56px;
   gap: 10px;
   align-items: center;
-  padding: 11px 12px;
+  padding: 11px 12px 11px 9px;
   border: 0;
+  border-left: 3px solid transparent;
   border-bottom: 1px solid rgba(45, 54, 66, 0.68);
   background: transparent;
   color: var(--text);
   text-align: left;
+  transition: background 80ms ease, border-color 80ms ease;
 }
 
-.request-row:hover,
+.request-row:hover {
+  background: var(--row-hover-bg);
+}
+
 .request-row.active {
-  background: var(--panel);
+  background: var(--row-active-bg);
+  border-left-color: var(--row-active-border);
+}
+
+.request-row.active .row-path {
+  color: var(--row-active-text);
 }
 
 .request-row.error {
@@ -241,7 +255,9 @@ button:focus-visible {
 }
 
 .request-row.error.active {
-  background: rgba(255, 92, 108, 0.16);
+  background: linear-gradient(90deg, rgba(255, 92, 108, 0.22), transparent 48%),
+              var(--row-active-bg);
+  border-left-color: var(--danger);
 }
 
 .method-badge,

@@ -6,7 +6,7 @@ const state = {
   activeSessionId: null,
   currentSessionId: null,
   selectedId: null,
-  activeTab: "response",
+  activeTab: "preview",
   source: null,
   sources: null,
   config: null
@@ -33,14 +33,10 @@ const els = {
   detailTitle: document.getElementById("detailTitle"),
   detailMethod: document.getElementById("detailMethod"),
   detailStatus: document.getElementById("detailStatus"),
-  detailPre: document.getElementById("detailPre"),
-  detailResponse: document.getElementById("detailResponse"),
-  responseStatusValue: document.getElementById("responseStatusValue"),
-  responseUrlValue: document.getElementById("responseUrlValue"),
-  responseHeadersValue: document.getElementById("responseHeadersValue"),
-  responseBody: document.getElementById("responseBody"),
-  copyButton: document.getElementById("copyButton"),
-  copyBodyButton: document.getElementById("copyBodyButton")
+  detailUrl: document.getElementById("detailUrl"),
+  detailSize: document.getElementById("detailSize"),
+  detailBody: document.getElementById("detailBody"),
+  copyButton: document.getElementById("copyButton")
 };
 
 connectEvents();
@@ -102,14 +98,6 @@ function bindUi() {
     const text = currentTabText(selectedEvent());
     if (!text) return;
     await flashCopy(els.copyButton, text);
-  });
-
-  els.copyBodyButton.addEventListener("click", async () => {
-    const event = selectedEvent();
-    if (!event || !event.response) return;
-    const text = formatBody(event.response.body);
-    if (!text || text === "(empty)") return;
-    await flashCopy(els.copyBodyButton, text);
   });
 }
 
@@ -453,103 +441,166 @@ function renderDetail() {
   els.detailStatus.textContent = event.statusCode || event.state || "pending";
   els.detailStatus.className = `status-badge ${statusClassName(event)}`;
 
-  const isResponse = state.activeTab === "response";
-  els.detailPre.classList.toggle("hidden", isResponse);
-  els.detailResponse.classList.toggle("hidden", !isResponse);
+  const fullUrl = (event.response && event.response.url) || event.url || "";
+  els.detailUrl.textContent = fullUrl;
+  els.detailUrl.title = fullUrl;
+  els.detailUrl.hidden = !fullUrl;
 
-  if (isResponse) {
-    renderResponseSummary(event);
-    els.responseBody.textContent = responseBodyText(event);
+  const size = responseBodySize(event);
+  if (size === null) {
+    els.detailSize.hidden = true;
+    els.detailSize.textContent = "";
   } else {
-    els.detailPre.textContent = currentTabText(event);
-  }
-}
-
-function responseBodyText(event) {
-  if (!event.response) return "No response captured yet.";
-  return formatBody(event.response.body);
-}
-
-function renderResponseSummary(event) {
-  const response = event.response;
-  if (!response) {
-    els.responseStatusValue.textContent = "—";
-    els.responseStatusValue.className = "field-value field-value--status pending";
-    els.responseUrlValue.textContent = "—";
-    els.responseHeadersValue.textContent = "No response captured yet.";
-    return;
+    els.detailSize.hidden = false;
+    els.detailSize.textContent = formatBytes(size);
+    els.detailSize.title = `${size.toLocaleString()} bytes`;
   }
 
-  const status = response.statusCode ?? event.statusCode ?? "—";
-  els.responseStatusValue.textContent = String(status);
-  els.responseStatusValue.className = `field-value field-value--status ${statusClassName(event)}`;
-
-  els.responseUrlValue.textContent = response.url || event.url || "—";
-
-  renderInlineHeaders(els.responseHeadersValue, response.headers || {});
+  renderTabContent(event);
 }
 
-function renderInlineHeaders(container, headers) {
-  const keys = Object.keys(headers).sort((a, b) => a.localeCompare(b));
+function renderTabContent(event) {
+  const container = els.detailBody;
   container.replaceChildren();
-  if (!keys.length) {
-    container.textContent = "(none)";
+
+  const tab = state.activeTab;
+  if (tab === "preview") {
+    renderTextTab(container, formatBody(event.response?.body), "No response captured yet.", event.response);
+    return;
+  }
+  if (tab === "headers") {
+    renderHeadersTab(container, event);
+    return;
+  }
+  if (tab === "payload") {
+    renderTextTab(container, formatBody(event.request?.body), "No request body captured.", event.request);
+    return;
+  }
+  if (tab === "response") {
+    renderTextTab(container, event.response?.body || "", "No response captured yet.", event.response);
+    return;
+  }
+  if (tab === "curl") {
+    renderTextTab(container, event.curl || "", "No cURL command captured yet.", event.curl);
+    return;
+  }
+  if (tab === "errors") {
+    const text = (event.errors || []).join("\n\n");
+    renderTextTab(container, text, "No errors captured for this request.", event.errors?.length);
+    return;
+  }
+  if (tab === "raw") {
+    const text = (event.raw || []).join("\n");
+    renderTextTab(container, text, "No raw lines captured.", event.raw?.length);
+  }
+}
+
+function renderTextTab(container, text, emptyMessage, hasContent) {
+  if (!hasContent || !text || text === "(empty)") {
+    const empty = document.createElement("div");
+    empty.className = "tab-empty";
+    empty.textContent = emptyMessage;
+    container.appendChild(empty);
+    return;
+  }
+  const pre = document.createElement("pre");
+  pre.className = "detail-pre";
+  pre.textContent = text;
+  container.appendChild(pre);
+}
+
+function renderHeadersTab(container, event) {
+  const requestHeaders = event.request?.headers || {};
+  const responseHeaders = event.response?.headers || {};
+  const requestKeys = Object.keys(requestHeaders);
+  const responseKeys = Object.keys(responseHeaders);
+
+  if (!requestKeys.length && !responseKeys.length) {
+    const empty = document.createElement("div");
+    empty.className = "tab-empty";
+    empty.textContent = "No headers captured yet.";
+    container.appendChild(empty);
     return;
   }
 
-  keys.forEach((key, index) => {
-    const keySpan = document.createElement("span");
-    keySpan.className = "header-key";
-    keySpan.textContent = `${key}:`;
-    container.appendChild(keySpan);
-    container.appendChild(document.createTextNode(` ${headers[key]}`));
-    if (index < keys.length - 1) {
-      const sep = document.createElement("span");
-      sep.className = "header-sep";
-      sep.textContent = ", ";
-      container.appendChild(sep);
-    }
-  });
+  appendHeadersBlock(container, "Request headers", requestHeaders, event.request);
+  appendHeadersBlock(container, "Response headers", responseHeaders, event.response);
+}
+
+function appendHeadersBlock(container, title, headers, ownerPresent) {
+  const block = document.createElement("section");
+  block.className = "headers-block";
+
+  const heading = document.createElement("h3");
+  heading.className = "headers-title";
+  heading.textContent = title;
+  block.appendChild(heading);
+
+  const keys = Object.keys(headers).sort((a, b) => a.localeCompare(b));
+  if (!keys.length) {
+    const note = document.createElement("div");
+    note.className = "headers-empty";
+    note.textContent = ownerPresent ? "(none)" : "Not captured.";
+    block.appendChild(note);
+    container.appendChild(block);
+    return;
+  }
+
+  const list = document.createElement("dl");
+  list.className = "headers-list";
+  for (const key of keys) {
+    const dt = document.createElement("dt");
+    dt.className = "header-name";
+    dt.textContent = key;
+    const dd = document.createElement("dd");
+    dd.className = "header-value";
+    dd.textContent = headers[key];
+    list.appendChild(dt);
+    list.appendChild(dd);
+  }
+  block.appendChild(list);
+  container.appendChild(block);
 }
 
 function currentTabText(event) {
   if (!event) return "";
 
+  if (state.activeTab === "preview") {
+    return event.response ? formatBody(event.response.body) : "";
+  }
+  if (state.activeTab === "headers") {
+    const reqText = formatHeaders(event.request?.headers);
+    const resText = formatHeaders(event.response?.headers);
+    return `Request headers:\n${reqText}\n\nResponse headers:\n${resText}`;
+  }
+  if (state.activeTab === "payload") {
+    return event.request ? formatBody(event.request.body) : "";
+  }
   if (state.activeTab === "response") {
-    if (!event.response) return "No response captured yet.";
-    return formatSection({
-      "Status Code": event.response.statusCode || "",
-      URL: event.response.url || event.url || "",
-      Headers: formatHeaders(event.response.headers),
-      Body: formatBody(event.response.body)
-    });
+    return event.response?.body || "";
   }
-
-  if (state.activeTab === "request") {
-    if (!event.request) return "No request block captured yet.";
-    return formatSection({
-      Method: event.request.method || event.method || "",
-      URL: event.request.url || event.url || "",
-      Headers: formatHeaders(event.request.headers),
-      Body: formatBody(event.request.body)
-    });
-  }
-
   if (state.activeTab === "curl") {
-    return event.curl || "No cURL command captured yet.";
+    return event.curl || "";
   }
-
   if (state.activeTab === "errors") {
-    return event.errors && event.errors.length
-      ? event.errors.join("\n\n")
-      : "No errors captured for this request.";
+    return (event.errors || []).join("\n\n");
   }
-
   if (state.activeTab === "raw") {
-    return (event.raw || []).join("\n") || "No raw lines captured.";
+    return (event.raw || []).join("\n");
   }
-
   return "";
+}
+
+function responseBodySize(event) {
+  const body = event.response?.body;
+  if (typeof body !== "string" || !body) return null;
+  return new Blob([body]).size;
+}
+
+function formatBytes(bytes) {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
 }
 
 function selectedEvent() {
@@ -576,15 +627,6 @@ function searchableText(event) {
     (event.errors || []).join(" "),
     (event.raw || []).join(" ")
   ].join(" ").toLowerCase();
-}
-
-function formatSection(items) {
-  return Object.entries(items)
-    .map(([key, value]) => {
-      const text = value || "";
-      return `${key}:\n${text}`;
-    })
-    .join("\n\n");
 }
 
 function formatHeaders(headers = {}) {

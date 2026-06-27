@@ -59,9 +59,13 @@
 
           <article id="detailContent" class="detail-content hidden">
             <div class="detail-header">
-              <div>
+              <div class="detail-summary">
                 <div class="detail-kicker" id="detailHost"></div>
                 <h2 id="detailTitle"></h2>
+                <div class="detail-meta">
+                  <span class="meta-chip meta-chip--url" id="detailUrl" title="Full URL"></span>
+                  <span class="meta-chip" id="detailSize" hidden></span>
+                </div>
               </div>
               <div class="detail-badges">
                 <span id="detailMethod" class="method-badge"></span>
@@ -70,40 +74,17 @@
             </div>
 
             <div class="tabbar" role="tablist" aria-label="Details">
-              <button class="tab-button active" data-tab="response" role="tab">Response</button>
-              <button class="tab-button" data-tab="request" role="tab">Request</button>
+              <button class="tab-button active" data-tab="preview" role="tab">Preview</button>
+              <button class="tab-button" data-tab="headers" role="tab">Headers</button>
+              <button class="tab-button" data-tab="payload" role="tab">Payload</button>
+              <button class="tab-button" data-tab="response" role="tab">Response</button>
               <button class="tab-button" data-tab="curl" role="tab">cURL</button>
               <button class="tab-button" data-tab="errors" role="tab">Errors</button>
               <button class="tab-button" data-tab="raw" role="tab">Raw</button>
               <button id="copyButton" class="copy-button" title="Copy current tab" aria-label="Copy current tab">Copy</button>
             </div>
 
-            <pre id="detailPre" class="detail-pre"></pre>
-            <div id="detailResponse" class="detail-response hidden">
-              <div class="response-summary">
-                <div class="response-row">
-                  <div class="response-field response-field--status">
-                    <span class="field-label">Status</span>
-                    <span class="field-value" id="responseStatusValue"></span>
-                  </div>
-                  <div class="response-field response-field--url">
-                    <span class="field-label">URL</span>
-                    <span class="field-value" id="responseUrlValue"></span>
-                  </div>
-                </div>
-                <div class="response-field response-field--headers">
-                  <span class="field-label">Headers</span>
-                  <div class="field-value" id="responseHeadersValue"></div>
-                </div>
-              </div>
-              <div class="response-body-wrap">
-                <div class="response-body-header">
-                  <span class="response-body-title">Body · JSON</span>
-                  <button id="copyBodyButton" class="copy-button copy-button--inline" title="Copy response body" aria-label="Copy response body">Copy</button>
-                </div>
-                <pre id="responseBody" class="response-body"></pre>
-              </div>
-            </div>
+            <div id="detailBody" class="detail-body"></div>
           </article>
         </section>
       </main>

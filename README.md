@@ -17,8 +17,10 @@ Electron wrapper and no frontend build step. The only runtime package is
   Android emulator/device, or demo mode. Sources are auto-detected on startup;
   when both iOS and Android are available, both record continuously and the
   header dropdown selects which platform history to view.
-- Per-call view: request URL/method/headers/body, a ready-to-run cURL command,
-  response status/headers/body, raw log lines, and any errors.
+- Per-call view: status, method, and full URL are pinned in the detail
+  header, with tabs for Preview (pretty-printed response body), Headers
+  (request and response headers side by side), Payload (request body),
+  Response (raw response body), cURL, Errors, and Raw log lines.
 - Search and filter by URL, status, method.
 - Demo mode for offline development of the UI itself.
 - SQLite-backed session history so recent captures remain available after a

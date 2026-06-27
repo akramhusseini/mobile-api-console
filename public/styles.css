@@ -337,7 +337,7 @@ button:focus-visible {
 }
 
 .hidden {
-  display: none;
+  display: none !important;
 }
 
 .detail-header {
@@ -349,10 +349,17 @@ button:focus-visible {
   gap: 18px;
 }
 
+.detail-summary {
+  min-width: 0;
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
 .detail-kicker {
   color: var(--muted);
   font-size: 12px;
-  margin-bottom: 6px;
 }
 
 .detail-header h2 {
@@ -360,6 +367,38 @@ button:focus-visible {
   font-size: 18px;
   line-height: 1.35;
   overflow-wrap: anywhere;
+}
+
+.detail-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 2px;
+}
+
+.meta-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(75, 163, 255, 0.08);
+  border: 1px solid rgba(75, 163, 255, 0.18);
+  color: var(--muted);
+  font: 11px/1.4 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+}
+
+.meta-chip[hidden] {
+  display: none;
+}
+
+.meta-chip--url {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #b9c8dc;
 }
 
 .detail-badges {
@@ -395,101 +434,38 @@ button:focus-visible {
   min-height: 31px;
 }
 
+.detail-body {
+  min-height: 0;
+  overflow: auto;
+  background: var(--bg);
+}
+
 .detail-pre {
   margin: 0;
   padding: 16px 20px 40px;
-  overflow: auto;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   color: #d6e1ef;
   font: 12px/1.55 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
 }
 
-.detail-response {
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-}
-
-.response-summary {
-  flex: 0 0 auto;
-  max-height: 50%;
-  overflow: auto;
-  padding: 14px 20px;
-  background: #10151b;
-  border-bottom: 1px solid var(--border);
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
-.response-row {
-  display: grid;
-  grid-template-columns: minmax(96px, max-content) minmax(0, 1fr);
-  gap: 16px;
-  align-items: start;
-}
-
-.response-field {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  min-width: 0;
-}
-
-.field-label {
-  font-size: 10px;
-  font-weight: 600;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+.tab-empty {
+  padding: 24px 20px;
   color: var(--muted);
+  font-size: 13px;
 }
 
-.field-value {
-  font: 13px/1.45 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
-  color: var(--text);
-  overflow-wrap: anywhere;
-}
-
-.field-value--status {
-  font-weight: 600;
-}
-
-.field-value--status.success { color: #6ee7b7; }
-.field-value--status.error { color: #ff8b94; }
-.field-value--status.pending { color: var(--muted); }
-
-.response-field--headers .field-value {
-  font: 12px/1.6 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
-  color: #c6d2e2;
-  word-break: normal;
-}
-
-.response-field--headers .header-key {
-  color: #9bb0c8;
-}
-
-.response-field--headers .header-sep {
-  color: var(--muted);
-}
-
-.response-body-wrap {
-  flex: 1 1 0;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-}
-
-.response-body-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 8px 20px;
+.headers-block {
+  padding: 16px 20px;
   border-bottom: 1px solid var(--border);
-  background: #0c1117;
 }
 
-.response-body-title {
+.headers-block:last-child {
+  border-bottom: 0;
+}
+
+.headers-title {
+  margin: 0 0 10px;
   font-size: 11px;
   font-weight: 600;
   letter-spacing: 0.08em;
@@ -497,23 +473,30 @@ button:focus-visible {
   color: var(--muted);
 }
 
-.copy-button--inline {
-  min-height: 24px;
-  padding: 0 10px;
-  font-size: 11px;
-  margin-left: 0;
-}
-
-.response-body {
-  flex: 1 1 0;
-  min-height: 0;
-  overflow: auto;
+.headers-list {
   margin: 0;
-  padding: 14px 20px 36px;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-  color: #d6e1ef;
+  display: grid;
+  grid-template-columns: minmax(140px, max-content) minmax(0, 1fr);
+  column-gap: 16px;
+  row-gap: 4px;
   font: 12px/1.55 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+}
+
+.header-name {
+  margin: 0;
+  color: #9bb0c8;
+  overflow-wrap: anywhere;
+}
+
+.header-value {
+  margin: 0;
+  color: #d6e1ef;
+  overflow-wrap: anywhere;
+}
+
+.headers-empty {
+  color: var(--muted);
+  font-size: 12px;
 }
 
 @media (max-width: 920px) {

@@ -15,6 +15,11 @@ iteration, or when running on a non-mac box. Both modes share the same
 config (`~/.mobile-api-console.json`), CLI flags, env vars, and SQLite
 database.
 
+This operational setup has been tested on macOS. On Windows and Ubuntu, use
+foreground `npm start` for Android/Demo mode until a platform-specific service
+file is added. iOS logging is not available on Windows or Ubuntu because it
+depends on Apple's macOS-only `xcrun simctl` tooling.
+
 The console checkout can live anywhere. The LaunchAgent `WorkingDirectory`
 should point to the console repo, not to the iOS or Android app repo. Mobile
 app repositories can live in any directory because the console only depends on
@@ -29,30 +34,42 @@ the working directory), reload the service so launchd re-reads it:
 ~/mobile-api-console/bin/start-service
 ```
 
-The header dropdown in the UI switches between iOS / Android / Demo live, so
-under normal conditions you almost never need to restart the service. Restart
-only when changing the plist itself, the port, or the on-disk config.
+The header dropdown in the UI switches between iOS / Android / Demo views live,
+so under normal conditions you almost never need to restart the service.
+Restart only when changing the plist itself, the port, or the on-disk config.
 
-Current capture model: the service keeps recording the selected source even
-when no browser is connected. For example, if the LaunchAgent is running with
-Android selected, `adb logcat` continues feeding SQLite while the web UI is
-closed. However, the dropdown is currently an active-source switch. Switching
-from Android to iOS stops the Android logcat process and starts the iOS stream,
-so new Android logs during that time are not recorded. Previously captured
-Android sessions remain in the database and can still be selected from history.
+Current capture model: the service records every available real source even
+when no browser is connected. For example, if both iOS and Android are
+available, the iOS log stream and Android `adb logcat` process keep writing to
+separate SQLite sessions while the web UI shows whichever platform is selected.
+Previously captured sessions remain in the database and can still be selected
+from history.
 
-The next planned architecture change is always-on multi-source capture: run
-each available platform source continuously, keep one open session per source,
-and let the UI dropdown choose which live session to view instead of which
-source process to run.
-
-Expected platform adaptation for that change:
+Platform adaptation:
 
 - If only iOS is available, record iOS and show iOS sessions/history.
 - If only Android is available, record Android and show Android
   sessions/history.
 - If both are available, record both continuously and use the platform selector
   to choose which live stream and history are visible.
+
+## First-run verification
+
+Before blaming the browser UI, verify the raw platform logs:
+
+```sh
+# iOS, macOS only. Replace the subsystem with your app's value.
+xcrun simctl spawn booted log stream \
+  --style compact \
+  --predicate 'subsystem == "com.example.mobile" AND category == "api-console"'
+
+# Android. Adjust adb path if it is not on PATH.
+adb logcat -v threadtime -T 1 API_CURL:D '*:S'
+```
+
+Then trigger one API request in the app. If these commands show nothing, the
+mobile app emitter is not wired yet or the config identifiers do not match. If
+they show valid blocks but the browser stays empty, check the service logs.
 
 ## Database Location
 

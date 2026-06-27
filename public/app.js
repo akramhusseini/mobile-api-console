@@ -6,13 +6,16 @@ const state = {
   activeSessionId: null,
   currentSessionId: null,
   selectedId: null,
-  activeTab: "response",
+  activeTab: "preview",
   source: null,
   sources: null,
   config: null
 };
 
 const els = {
+  workspace: document.getElementById("workspace"),
+  paneDivider: document.getElementById("paneDivider"),
+  toggleListButton: document.getElementById("toggleListButton"),
   sourceDot: document.getElementById("sourceDot"),
   sourceText: document.getElementById("sourceText"),
   sourcePicker: document.getElementById("sourcePicker"),
@@ -33,16 +36,14 @@ const els = {
   detailTitle: document.getElementById("detailTitle"),
   detailMethod: document.getElementById("detailMethod"),
   detailStatus: document.getElementById("detailStatus"),
-  detailPre: document.getElementById("detailPre"),
-  detailResponse: document.getElementById("detailResponse"),
-  responseStatusValue: document.getElementById("responseStatusValue"),
-  responseUrlValue: document.getElementById("responseUrlValue"),
-  responseHeadersValue: document.getElementById("responseHeadersValue"),
-  responseBody: document.getElementById("responseBody"),
-  copyButton: document.getElementById("copyButton"),
-  copyBodyButton: document.getElementById("copyBodyButton")
+  detailUrl: document.getElementById("detailUrl"),
+  detailSize: document.getElementById("detailSize"),
+  detailBody: document.getElementById("detailBody"),
+  copyButton: document.getElementById("copyButton")
 };
 
+loadLayoutState();
+bindLayout();
 connectEvents();
 bindUi();
 
@@ -63,10 +64,10 @@ function bindUi() {
     els.sourcePicker.addEventListener("change", async () => {
       const value = els.sourcePicker.value;
       if (!value) return;
-      const [kind, deviceSerial = null] = value.split("::");
-      const previous = state.sources?.current;
-      const body = { kind };
-      if (kind === "android") body.deviceSerial = deviceSerial;
+      const option = sourceOptionForValue(value);
+      if (!option) return;
+      const body = { kind: option.kind };
+      if (option.kind === "android") body.deviceSerial = option.opts?.deviceSerial || null;
       const response = await fetch("/api/source", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -74,8 +75,11 @@ function bindUi() {
       });
       if (!response.ok) {
         // Revert UI selection on failure.
-        renderSourcePicker(previous);
+        renderSourcePicker();
+        return;
       }
+      applySnapshotPayload(await response.json());
+      render();
     });
   }
 
@@ -100,14 +104,144 @@ function bindUi() {
     if (!text) return;
     await flashCopy(els.copyButton, text);
   });
+}
 
-  els.copyBodyButton.addEventListener("click", async () => {
-    const event = selectedEvent();
-    if (!event || !event.response) return;
-    const text = formatBody(event.response.body);
-    if (!text || text === "(empty)") return;
-    await flashCopy(els.copyBodyButton, text);
+const LAYOUT_STORAGE_KEY = "mobileApiConsole.layout";
+const LIST_MIN_PX = 80;
+const LIST_DEFAULT_VW = 0.38;
+const LIST_COLLAPSE_THRESHOLD = 60;
+const LIST_KEYBOARD_STEP = 24;
+
+let dragState = null;
+
+function bindLayout() {
+  if (!els.paneDivider) return;
+
+  els.paneDivider.addEventListener("pointerdown", onDividerPointerDown);
+  els.paneDivider.addEventListener("dblclick", () => {
+    setListCollapsed(false);
+    setListWidthPx(Math.max(LIST_MIN_PX, window.innerWidth * LIST_DEFAULT_VW));
+    saveLayoutState();
   });
+  els.paneDivider.addEventListener("keydown", (event) => {
+    if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
+      const delta = event.key === "ArrowLeft" ? -LIST_KEYBOARD_STEP : LIST_KEYBOARD_STEP;
+      const current = currentListWidthPx();
+      setListCollapsed(false);
+      setListWidthPx(current + delta);
+      saveLayoutState();
+      event.preventDefault();
+    } else if (event.key === "Enter" || event.key === " ") {
+      toggleListCollapsed();
+      event.preventDefault();
+    }
+  });
+
+  els.toggleListButton.addEventListener("click", toggleListCollapsed);
+}
+
+function onDividerPointerDown(event) {
+  if (event.button !== 0) return;
+  const workspaceRect = els.workspace.getBoundingClientRect();
+  dragState = {
+    pointerId: event.pointerId,
+    workspaceLeft: workspaceRect.left,
+    workspaceRight: workspaceRect.right
+  };
+  els.paneDivider.setPointerCapture(event.pointerId);
+  els.paneDivider.classList.add("dragging");
+  document.body.style.cursor = "col-resize";
+  els.paneDivider.addEventListener("pointermove", onDividerPointerMove);
+  els.paneDivider.addEventListener("pointerup", onDividerPointerUp);
+  els.paneDivider.addEventListener("pointercancel", onDividerPointerUp);
+  event.preventDefault();
+}
+
+function onDividerPointerMove(event) {
+  if (!dragState) return;
+  const width = event.clientX - dragState.workspaceLeft;
+  if (width < LIST_COLLAPSE_THRESHOLD) {
+    setListCollapsed(true);
+    return;
+  }
+  setListCollapsed(false);
+  setListWidthPx(width);
+}
+
+function onDividerPointerUp(event) {
+  if (!dragState) return;
+  els.paneDivider.releasePointerCapture(dragState.pointerId);
+  els.paneDivider.classList.remove("dragging");
+  document.body.style.cursor = "";
+  els.paneDivider.removeEventListener("pointermove", onDividerPointerMove);
+  els.paneDivider.removeEventListener("pointerup", onDividerPointerUp);
+  els.paneDivider.removeEventListener("pointercancel", onDividerPointerUp);
+  dragState = null;
+  saveLayoutState();
+}
+
+function toggleListCollapsed() {
+  const collapsed = els.workspace.dataset.listCollapsed !== "true";
+  setListCollapsed(collapsed);
+  saveLayoutState();
+}
+
+function setListCollapsed(collapsed) {
+  els.workspace.dataset.listCollapsed = collapsed ? "true" : "false";
+  els.toggleListButton.setAttribute("aria-pressed", String(collapsed));
+  els.toggleListButton.textContent = collapsed ? "› Show list" : "‹ Hide list";
+  els.toggleListButton.title = collapsed ? "Show call list" : "Hide call list";
+  els.toggleListButton.setAttribute("aria-label", els.toggleListButton.title);
+  const valueNow = collapsed ? 0 : Math.round((currentListWidthPx() / window.innerWidth) * 100);
+  els.paneDivider.setAttribute("aria-valuenow", String(valueNow));
+}
+
+function setListWidthPx(width) {
+  const clamped = Math.max(LIST_MIN_PX, Math.min(width, window.innerWidth * 0.6));
+  els.workspace.style.setProperty("--list-width", `${Math.round(clamped)}px`);
+  els.paneDivider.setAttribute("aria-valuenow", String(Math.round((clamped / window.innerWidth) * 100)));
+}
+
+function currentListWidthPx() {
+  const value = els.workspace.style.getPropertyValue("--list-width");
+  if (value && value.endsWith("px")) return Number.parseFloat(value);
+  return window.innerWidth * LIST_DEFAULT_VW;
+}
+
+function saveLayoutState() {
+  try {
+    const payload = {
+      width: els.workspace.style.getPropertyValue("--list-width") || "",
+      collapsed: els.workspace.dataset.listCollapsed === "true"
+    };
+    localStorage.setItem(LAYOUT_STORAGE_KEY, JSON.stringify(payload));
+  } catch {
+    // localStorage unavailable (private mode, etc.) — skip silently.
+  }
+}
+
+function loadLayoutState() {
+  if (!els.workspace) return;
+  try {
+    const raw = localStorage.getItem(LAYOUT_STORAGE_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed.width === "string" && parsed.width.endsWith("px")) {
+        els.workspace.style.setProperty("--list-width", parsed.width);
+      }
+      if (parsed && parsed.collapsed) {
+        els.workspace.dataset.listCollapsed = "true";
+      }
+    }
+  } catch {
+    // Ignore malformed persisted state.
+  }
+  // Initialise button label / aria attrs to match current state.
+  const collapsed = els.workspace.dataset.listCollapsed === "true";
+  els.toggleListButton.setAttribute("aria-pressed", String(collapsed));
+  els.toggleListButton.textContent = collapsed ? "› Show list" : "‹ Hide list";
+  els.toggleListButton.title = collapsed ? "Show call list" : "Hide call list";
+  els.toggleListButton.setAttribute("aria-label", els.toggleListButton.title);
 }
 
 async function flashCopy(button, text) {
@@ -124,24 +258,20 @@ function connectEvents() {
 
   eventSource.addEventListener("snapshot", (message) => {
     const payload = JSON.parse(message.data);
-    state.events = payload.events || [];
-    state.sessions = payload.sessions || [];
-    state.currentSessionId = payload.currentSession ? payload.currentSession.id : null;
-    state.activeSessionId = state.currentSessionId;
-    state.source = payload.source;
-    state.sources = payload.sources || null;
-    state.config = payload.config;
+    applySnapshotPayload(payload);
     selectLatestIfNeeded();
     render();
   });
 
   eventSource.addEventListener("event-upsert", (message) => {
     const event = JSON.parse(message.data);
+    if (event.sourceKey && event.sourceKey !== selectedSourceKey()) return;
     if (state.activeSessionId !== state.currentSessionId) return;
     if (event.sessionId && event.sessionId !== state.activeSessionId) return;
     const index = state.events.findIndex((item) => item.id === event.id);
     if (index >= 0) state.events[index] = event;
     else state.events.unshift(event);
+    bumpSessionCount(event.sessionId);
     sortEvents();
     selectLatestIfNeeded(event.id);
     render();
@@ -149,6 +279,7 @@ function connectEvents() {
 
   eventSource.addEventListener("session-start", (message) => {
     const payload = JSON.parse(message.data);
+    if (payload.sourceKey && payload.sourceKey !== selectedSourceKey()) return;
     const session = payload.session;
     const wasOnLive = state.activeSessionId === state.currentSessionId;
 
@@ -171,7 +302,11 @@ function connectEvents() {
   });
 
   eventSource.addEventListener("source-status", (message) => {
-    state.source = JSON.parse(message.data);
+    const status = JSON.parse(message.data);
+    updateSourceStatus(status);
+    if (status.sourceKey === selectedSourceKey()) {
+      state.source = status;
+    }
     renderSource();
   });
 
@@ -188,6 +323,39 @@ function connectEvents() {
     };
     renderSource();
   };
+}
+
+function applySnapshotPayload(payload) {
+  state.events = payload.events || [];
+  state.sessions = payload.sessions || [];
+  state.currentSessionId = payload.currentSession ? payload.currentSession.id : null;
+  state.activeSessionId = state.currentSessionId;
+  state.source = payload.source;
+  state.sources = payload.sources || null;
+  state.config = payload.config || state.config;
+  state.selectedId = null;
+}
+
+function selectedSourceKey() {
+  return state.sources?.selectedSourceKey
+    || state.sources?.current?.sourceKey
+    || null;
+}
+
+function updateSourceStatus(status) {
+  if (!state.sources?.selectable || !status?.sourceKey) return;
+  const entry = state.sources.selectable.find((item) => item.sourceKey === status.sourceKey);
+  if (!entry) return;
+  entry.status = status;
+  entry.running = Boolean(status.running);
+}
+
+function bumpSessionCount(sessionId) {
+  if (!sessionId) return;
+  const session = state.sessions.find((item) => item.id === sessionId);
+  if (!session) return;
+  const visibleCount = state.events.filter((event) => event.sessionId === sessionId).length;
+  session.eventCount = Math.max(session.eventCount || 0, visibleCount);
 }
 
 function selectLatestIfNeeded(newId) {
@@ -226,30 +394,69 @@ function renderSourcePicker(snapshot) {
   }
 
   const options = [];
-  for (const entry of sources.available || []) {
-    if (entry.kind === "android" && entry.devices && entry.devices.length > 0) {
-      const single = entry.devices.length === 1;
-      for (const device of entry.devices) {
-        const label = single ? (entry.label || `Android · ${device.label}`) : `Android · ${device.label}`;
-        options.push({ value: `android::${device.serial}`, label });
-      }
-    } else if (entry.kind === "android") {
-      options.push({ value: "android::", label: entry.label || "Android" });
-    } else {
-      options.push({ value: entry.kind, label: entry.label || entry.kind });
-    }
+  for (const entry of sourceOptions()) {
+    options.push({
+      value: entry.sourceKey || sourceValueFor(entry),
+      label: entry.label || entry.kind,
+      kind: entry.kind,
+      opts: entry.opts || {}
+    });
   }
 
   const current = sources.current || { kind: "", opts: {} };
-  const currentValue = current.kind === "android"
-    ? `android::${current.opts?.deviceSerial || ""}`
-    : (current.kind || "");
+  const currentValue = sources.selectedSourceKey || current.sourceKey || sourceValueFor(current);
 
   els.sourcePicker.innerHTML = options.map((option) => {
     const selected = option.value === currentValue ? " selected" : "";
     return `<option value="${escapeHtml(option.value)}"${selected}>${escapeHtml(option.label)}</option>`;
   }).join("");
   els.sourcePicker.disabled = options.length <= 1;
+}
+
+function sourceOptions() {
+  const sources = state.sources || {};
+  if (sources.selectable && sources.selectable.length) return sources.selectable;
+
+  const options = [];
+  for (const entry of sources.available || []) {
+    if (entry.kind === "android" && entry.devices && entry.devices.length > 0) {
+      const single = entry.devices.length === 1;
+      for (const device of entry.devices) {
+        const label = single ? (entry.label || `Android · ${device.label}`) : `Android · ${device.label}`;
+        options.push({
+          sourceKey: `android::${device.serial}`,
+          kind: "android",
+          opts: { deviceSerial: device.serial },
+          label
+        });
+      }
+    } else if (entry.kind === "android") {
+      options.push({
+        sourceKey: "android::",
+        kind: "android",
+        opts: { deviceSerial: null },
+        label: entry.label || "Android"
+      });
+    } else {
+      options.push({
+        sourceKey: entry.kind,
+        kind: entry.kind,
+        opts: {},
+        label: entry.label || entry.kind
+      });
+    }
+  }
+  return options;
+}
+
+function sourceOptionForValue(value) {
+  return sourceOptions().find((entry) => (entry.sourceKey || sourceValueFor(entry)) === value);
+}
+
+function sourceValueFor(entry) {
+  if (!entry?.kind) return "";
+  if (entry.kind === "android") return `android::${entry.opts?.deviceSerial || ""}`;
+  return entry.kind;
 }
 
 function renderEmptyHint() {
@@ -278,12 +485,18 @@ async function switchToSession(id) {
 
 function renderSessionPicker() {
   if (!els.sessionPicker) return;
-  const sessions = state.sessions || [];
+  const sessions = (state.sessions || []).filter(isVisibleSession);
   els.sessionPicker.innerHTML = sessions.map((session) => {
     const label = formatSessionLabel(session);
     const selected = session.id === state.activeSessionId ? " selected" : "";
     return `<option value="${session.id}"${selected}>${escapeHtml(label)}</option>`;
   }).join("");
+}
+
+function isVisibleSession(session) {
+  if (session.id === state.currentSessionId) return true;
+  if (session.id === state.activeSessionId) return true;
+  return (session.eventCount || 0) > 0;
 }
 
 function formatSessionLabel(session) {
@@ -377,103 +590,200 @@ function renderDetail() {
   els.detailStatus.textContent = event.statusCode || event.state || "pending";
   els.detailStatus.className = `status-badge ${statusClassName(event)}`;
 
-  const isResponse = state.activeTab === "response";
-  els.detailPre.classList.toggle("hidden", isResponse);
-  els.detailResponse.classList.toggle("hidden", !isResponse);
+  const fullUrl = (event.response && event.response.url) || event.url || "";
+  els.detailUrl.textContent = fullUrl;
+  els.detailUrl.title = fullUrl;
+  els.detailUrl.hidden = !fullUrl;
 
-  if (isResponse) {
-    renderResponseSummary(event);
-    els.responseBody.textContent = responseBodyText(event);
+  const size = responseBodySize(event);
+  if (size === null) {
+    els.detailSize.hidden = true;
+    els.detailSize.textContent = "";
   } else {
-    els.detailPre.textContent = currentTabText(event);
-  }
-}
-
-function responseBodyText(event) {
-  if (!event.response) return "No response captured yet.";
-  return formatBody(event.response.body);
-}
-
-function renderResponseSummary(event) {
-  const response = event.response;
-  if (!response) {
-    els.responseStatusValue.textContent = "—";
-    els.responseStatusValue.className = "field-value field-value--status pending";
-    els.responseUrlValue.textContent = "—";
-    els.responseHeadersValue.textContent = "No response captured yet.";
-    return;
+    els.detailSize.hidden = false;
+    els.detailSize.textContent = formatBytes(size);
+    els.detailSize.title = `${size.toLocaleString()} bytes`;
   }
 
-  const status = response.statusCode ?? event.statusCode ?? "—";
-  els.responseStatusValue.textContent = String(status);
-  els.responseStatusValue.className = `field-value field-value--status ${statusClassName(event)}`;
-
-  els.responseUrlValue.textContent = response.url || event.url || "—";
-
-  renderInlineHeaders(els.responseHeadersValue, response.headers || {});
+  renderTabContent(event);
 }
 
-function renderInlineHeaders(container, headers) {
-  const keys = Object.keys(headers).sort((a, b) => a.localeCompare(b));
+function renderTabContent(event) {
+  const container = els.detailBody;
   container.replaceChildren();
-  if (!keys.length) {
-    container.textContent = "(none)";
+
+  const tab = state.activeTab;
+  if (tab === "preview") {
+    renderBodyTab(container, event.response?.body, "No response captured yet.", event.response);
+    return;
+  }
+  if (tab === "headers") {
+    renderHeadersTab(container, event);
+    return;
+  }
+  if (tab === "payload") {
+    renderBodyTab(container, event.request?.body, "No request body captured.", event.request);
+    return;
+  }
+  if (tab === "response") {
+    renderTextTab(container, event.response?.body || "", "No response captured yet.", event.response);
+    return;
+  }
+  if (tab === "curl") {
+    renderTextTab(container, event.curl || "", "No cURL command captured yet.", event.curl);
+    return;
+  }
+  if (tab === "errors") {
+    const text = (event.errors || []).join("\n\n");
+    renderTextTab(container, text, "No errors captured for this request.", event.errors?.length);
+    return;
+  }
+  if (tab === "raw") {
+    const text = (event.raw || []).join("\n");
+    renderTextTab(container, text, "No raw lines captured.", event.raw?.length);
+  }
+}
+
+function renderTextTab(container, text, emptyMessage, hasContent) {
+  if (!hasContent || !text || text === "(empty)") {
+    const empty = document.createElement("div");
+    empty.className = "tab-empty";
+    empty.textContent = emptyMessage;
+    container.appendChild(empty);
+    return;
+  }
+  const pre = document.createElement("pre");
+  pre.className = "detail-pre";
+  pre.textContent = text;
+  container.appendChild(pre);
+}
+
+function renderBodyTab(container, body, emptyMessage, ownerPresent) {
+  if (!ownerPresent || !body) {
+    const empty = document.createElement("div");
+    empty.className = "tab-empty";
+    empty.textContent = emptyMessage;
+    container.appendChild(empty);
     return;
   }
 
-  keys.forEach((key, index) => {
-    const keySpan = document.createElement("span");
-    keySpan.className = "header-key";
-    keySpan.textContent = `${key}:`;
-    container.appendChild(keySpan);
-    container.appendChild(document.createTextNode(` ${headers[key]}`));
-    if (index < keys.length - 1) {
-      const sep = document.createElement("span");
-      sep.className = "header-sep";
-      sep.textContent = ", ";
-      container.appendChild(sep);
-    }
-  });
+  const parsed = tryParseJson(body);
+  if (parsed.ok && typeof window.renderJsonTree === "function") {
+    container.appendChild(window.renderJsonTree(parsed.value));
+    return;
+  }
+
+  const pre = document.createElement("pre");
+  pre.className = "detail-pre";
+  pre.textContent = body;
+  container.appendChild(pre);
+}
+
+function tryParseJson(body) {
+  if (typeof body !== "string") return { ok: false };
+  const trimmed = body.trim();
+  if (!trimmed) return { ok: false };
+  const first = trimmed[0];
+  if (first !== "{" && first !== "[") return { ok: false };
+  try {
+    return { ok: true, value: JSON.parse(trimmed) };
+  } catch {
+    return { ok: false };
+  }
+}
+
+function renderHeadersTab(container, event) {
+  const requestHeaders = event.request?.headers || {};
+  const responseHeaders = event.response?.headers || {};
+  const requestKeys = Object.keys(requestHeaders);
+  const responseKeys = Object.keys(responseHeaders);
+
+  if (!requestKeys.length && !responseKeys.length) {
+    const empty = document.createElement("div");
+    empty.className = "tab-empty";
+    empty.textContent = "No headers captured yet.";
+    container.appendChild(empty);
+    return;
+  }
+
+  appendHeadersBlock(container, "Request headers", requestHeaders, event.request);
+  appendHeadersBlock(container, "Response headers", responseHeaders, event.response);
+}
+
+function appendHeadersBlock(container, title, headers, ownerPresent) {
+  const block = document.createElement("section");
+  block.className = "headers-block";
+
+  const heading = document.createElement("h3");
+  heading.className = "headers-title";
+  heading.textContent = title;
+  block.appendChild(heading);
+
+  const keys = Object.keys(headers).sort((a, b) => a.localeCompare(b));
+  if (!keys.length) {
+    const note = document.createElement("div");
+    note.className = "headers-empty";
+    note.textContent = ownerPresent ? "(none)" : "Not captured.";
+    block.appendChild(note);
+    container.appendChild(block);
+    return;
+  }
+
+  const list = document.createElement("dl");
+  list.className = "headers-list";
+  for (const key of keys) {
+    const dt = document.createElement("dt");
+    dt.className = "header-name";
+    dt.textContent = key;
+    const dd = document.createElement("dd");
+    dd.className = "header-value";
+    dd.textContent = headers[key];
+    list.appendChild(dt);
+    list.appendChild(dd);
+  }
+  block.appendChild(list);
+  container.appendChild(block);
 }
 
 function currentTabText(event) {
   if (!event) return "";
 
+  if (state.activeTab === "preview") {
+    return event.response ? formatBody(event.response.body) : "";
+  }
+  if (state.activeTab === "headers") {
+    const reqText = formatHeaders(event.request?.headers);
+    const resText = formatHeaders(event.response?.headers);
+    return `Request headers:\n${reqText}\n\nResponse headers:\n${resText}`;
+  }
+  if (state.activeTab === "payload") {
+    return event.request ? formatBody(event.request.body) : "";
+  }
   if (state.activeTab === "response") {
-    if (!event.response) return "No response captured yet.";
-    return formatSection({
-      "Status Code": event.response.statusCode || "",
-      URL: event.response.url || event.url || "",
-      Headers: formatHeaders(event.response.headers),
-      Body: formatBody(event.response.body)
-    });
+    return event.response?.body || "";
   }
-
-  if (state.activeTab === "request") {
-    if (!event.request) return "No request block captured yet.";
-    return formatSection({
-      Method: event.request.method || event.method || "",
-      URL: event.request.url || event.url || "",
-      Headers: formatHeaders(event.request.headers),
-      Body: formatBody(event.request.body)
-    });
-  }
-
   if (state.activeTab === "curl") {
-    return event.curl || "No cURL command captured yet.";
+    return event.curl || "";
   }
-
   if (state.activeTab === "errors") {
-    return event.errors && event.errors.length
-      ? event.errors.join("\n\n")
-      : "No errors captured for this request.";
+    return (event.errors || []).join("\n\n");
   }
-
   if (state.activeTab === "raw") {
-    return (event.raw || []).join("\n") || "No raw lines captured.";
+    return (event.raw || []).join("\n");
   }
-
   return "";
+}
+
+function responseBodySize(event) {
+  const body = event.response?.body;
+  if (typeof body !== "string" || !body) return null;
+  return new Blob([body]).size;
+}
+
+function formatBytes(bytes) {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
 }
 
 function selectedEvent() {
@@ -500,15 +810,6 @@ function searchableText(event) {
     (event.errors || []).join(" "),
     (event.raw || []).join(" ")
   ].join(" ").toLowerCase();
-}
-
-function formatSection(items) {
-  return Object.entries(items)
-    .map(([key, value]) => {
-      const text = value || "";
-      return `${key}:\n${text}`;
-    })
-    .join("\n\n");
 }
 
 function formatHeaders(headers = {}) {

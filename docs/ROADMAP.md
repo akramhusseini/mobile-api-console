@@ -8,12 +8,12 @@ turn them into issues or milestones.
 
 - Android capture is implemented through `adb logcat`, the default `API_CURL`
   tag, and `AndroidApiCurlParser`.
-- The UI can switch between iOS, Android, and Demo at runtime.
+- The UI can switch between iOS, Android, and Demo views at runtime.
 - SQLite persistence is active: captured sessions and events survive browser
   reloads and server restarts.
-- Current source switching is still an active capture switch. The selected
-  source keeps recording in the background, but the previous source is stopped,
-  so logs from the unselected platform are not captured until switching back.
+- Always-on multi-source capture is active: if iOS and Android are both
+  available, both keep recording while the UI selects which platform history to
+  view.
 
 ## Capture Sources
 
@@ -22,8 +22,8 @@ turn them into issues or milestones.
 - [x] Android log source backed by `adb logcat` (`AdbLogcatStream`).
 - [x] Emulator + physical-device selection (multi-device dropdown).
 - [x] Filter by tag (`--android-tag`, defaults to `API_CURL`).
-- [x] Header dropdown switches the active capture source between iOS / Android
-  / Demo at runtime.
+- [x] Header dropdown switches the visible view between iOS / Android / Demo
+  at runtime.
 - [x] Platform metadata recorded on each session (`ios-simulator`,
   `android-emulator`, `android-device`, with package name, log tag, and device
   serial).
@@ -41,40 +41,42 @@ turn them into issues or milestones.
 
 ### Always-on Multi-source Capture
 
-Next planned work: keep every available real source recording independently,
+Implemented direction: keep every available real source recording independently,
 even when the browser is closed or the UI is looking at another platform.
 
-- [ ] Keep the console repo directory-agnostic. It must not require or hardcode
+- [x] Keep the console repo directory-agnostic. It must not require or hardcode
   the iOS or Android app checkout path; local app paths are only development
   references.
-- [ ] Drive platform availability from `xcrun`, `adb`, attached devices,
+- [x] Drive platform availability from `xcrun`, `adb`, attached devices,
   booted simulators, CLI flags, environment variables, and
   `~/.mobile-api-console.json`, not from the mobile app source directory.
-- [ ] Support iOS-only environments by starting iOS capture and presenting a
+- [x] Support iOS-only environments by starting iOS capture and presenting a
   single iOS-focused view/history.
-- [ ] Support Android-only environments by starting Android capture and
+- [x] Support Android-only environments by starting Android capture and
   presenting a single Android-focused view/history.
-- [ ] Support environments with both platforms by recording both continuously
+- [x] Support environments with both platforms by recording both continuously
   and letting the user choose which platform's live stream and history to view.
-- [ ] Refactor `SourceManager` from one `{source, parser, store}` to a
+- [x] Refactor `SourceManager` from one `{source, parser, store}` to a
   source-keyed map, for example iOS simulator plus each Android device serial.
-- [ ] Start every available real source on server startup: iOS when a simulator
+- [x] Start every available real source on server startup: iOS when a simulator
   is booted, Android when one or more devices are attached.
-- [ ] Keep one open persistent session per active source, tagged with existing
+- [x] Keep one open persistent session per active source, tagged with existing
   `sourceKind` and `sourceMetadata`.
-- [ ] Route parser upserts, clear markers, errors, and quiet flushes to the
+- [x] Route parser upserts, clear markers, errors, and quiet flushes to the
   correct source session instead of one global `EventStore.currentSessionId`.
-- [ ] Change the dropdown into a view selector so switching views does not call
+- [x] Change the dropdown into a view selector so switching views does not call
   `source.stop()` on the previous platform.
-- [ ] Filter the session picker/history by selected platform while still
+- [x] Filter the session picker/history by selected platform while still
   preserving access to older sessions from all platforms.
-- [ ] Include source identity in SSE updates so the browser can render only the
+- [x] Include source identity in SSE updates so the browser can render only the
   selected live source while still updating session counts in the background.
 - [ ] Add a small enable/disable control for noisy or battery-sensitive
   background sources.
-- [ ] Add tests covering parallel iOS/Android routing, source switching without
-  data loss, source-specific clear markers, shutdown flushes, and legacy session
-  browsing.
+- [x] Add tests covering parallel iOS/Android routing, iOS-only adaptation,
+  Android-only adaptation, view switching without data loss, and source-specific
+  clear markers.
+- [ ] Add tests covering multi-source shutdown flushes and legacy session
+  browsing edge cases.
 
 ### Source Health
 
@@ -90,21 +92,23 @@ even when the browser is closed or the UI is looking at another platform.
 
 ## JSON and Body Viewer
 
-- Add syntax coloring for JSON response and request bodies.
-- Add collapsible JSON nodes for large payloads.
-- Preserve raw text for non-JSON bodies.
-- Add copy actions for:
-  - full body
+- [x] Add syntax coloring for JSON response and request bodies.
+- [x] Add collapsible JSON nodes for large payloads (alt-click recursively
+  expands or collapses a whole subtree).
+- [x] Preserve raw text for non-JSON bodies (Preview falls back to text;
+  Response always shows the raw body).
+- [x] Bracket-pair hover highlight on open and close.
+- [ ] Add copy actions for:
+  - full body (covered by the existing Copy button)
   - selected JSON node
   - JSON path
   - redacted body
-- Add bracket-pair interaction:
-  - clicking `{`, `[`, or `(` highlights the matching closing bracket
-  - clicking a bracket highlights the full bracketed range
-  - hovering a bracket previews the pair
+- [ ] Bracket-pair extras:
   - keyboard shortcuts jump between matching brackets
-- Add large-body safeguards so rendering very large responses does not freeze
-  the browser.
+  - clicking a bracket highlights the full bracketed range (vs. just the
+    pair partner)
+- [ ] Add large-body safeguards so rendering very large responses does not
+  freeze the browser (virtualization, string truncation with "Show more").
 
 ## Storage, Retention, and Disk Space
 

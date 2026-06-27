@@ -13,21 +13,29 @@ Electron wrapper and no frontend build step. The only runtime package is
 
 ## Features
 
-- Live stream from the selected source: the booted iOS Simulator, an attached
-  Android emulator/device, or demo mode. Sources are auto-detected on startup
-  and the header dropdown can switch the active capture source when more than
-  one is available.
-- Per-call view: request URL/method/headers/body, a ready-to-run cURL command,
-  response status/headers/body, raw log lines, and any errors.
+- Live stream from available sources: the booted iOS Simulator, attached
+  Android emulator/device, or demo mode. Sources are auto-detected on startup;
+  when both iOS and Android are available, both record continuously and the
+  header dropdown selects which platform history to view.
+- Per-call view: status, method, and full URL are pinned in the detail
+  header, with tabs for Preview (interactive JSON tree with type-aware
+  colors, collapsible `{}` and `[]` nodes, and bracket-pair highlight),
+  Headers (request and response headers side by side), Payload (request
+  body, also rendered as a tree when JSON), Response (raw response
+  body), cURL, Errors, and Raw log lines.
 - Search and filter by URL, status, method.
+- Resizable workspace: drag the divider between the call list and the
+  detail pane to change their proportions, or use the "Hide list"
+  toggle in the header to collapse the list entirely (it can be
+  restored at any time from the same button). Layout choices persist
+  across reloads via `localStorage`.
 - Demo mode for offline development of the UI itself.
 - SQLite-backed session history so recent captures remain available after a
   restart. Each session is tagged with the platform (`ios-simulator`,
   `android-emulator`, or `android-device`).
-- Current limitation: source switching changes which log process is running.
-  Already-captured sessions stay in SQLite, but new logs from the unselected
-  platform are not captured until you switch back. Always-on parallel capture is
-  the next planned architecture step.
+- Adaptive capture: iOS-only machines record iOS, Android-only machines record
+  Android, machines with both available record both, and machines with neither
+  fall back to Demo.
 - Optional macOS LaunchAgent so the console runs in the background and is
   always available at `http://localhost:3957`.
 - Per-developer config via `~/.mobile-api-console.json` so real bundle ids,
@@ -53,19 +61,45 @@ Electron wrapper and no frontend build step. The only runtime package is
     `PATH` or `ANDROID_HOME` / `ANDROID_SDK_ROOT` exported, and an emulator or
     USB-debuggable device attached.
 
-On startup the console probes both `xcrun` and `adb`. The header dropdown
-shows whichever platforms are usable; if only one is installed the dropdown
-just locks to that source. Demo mode is always available.
+On startup the console probes both `xcrun` and `adb`. If only one platform is
+usable, the UI locks to that platform's live history. If both iOS and Android
+are usable, the server starts both log streams and writes both to SQLite while
+the dropdown only selects which platform is visible. Demo mode is always
+available as a fallback.
 
-Important current behavior: the dropdown switches the active capture source,
-not just the visible view. The selected source keeps recording into SQLite even
-when the browser is closed, but the non-selected source is stopped. For example,
-while iOS is selected, Android `adb logcat` is not running, so new Android API
-logs during that time are not stored. The next planned change is to keep iOS
-and Android sources running in parallel and make the dropdown a view selector.
-That next version should adapt automatically: iOS-only machines record iOS,
-Android-only machines record Android, and machines with both available record
-both while the user selects which platform history to view.
+### Platform support status
+
+- **macOS:** primary supported and tested platform. Supports iOS Simulator,
+  Android emulator/device, Demo mode, and the LaunchAgent background service.
+- **Windows / Ubuntu:** Android and Demo mode should work when Node.js and
+  `adb` are available. iOS Simulator logging is not available because Apple's
+  `xcrun simctl` tooling only exists on macOS. The service scripts in `bin/`
+  are macOS LaunchAgent scripts; on Windows / Ubuntu, run foreground for now or
+  adapt the server command into your own service manager.
+
+### New macOS machine checklist
+
+Use this when setting up a fresh Mac or helping another developer get running:
+
+1. Install Xcode from the App Store if you need iOS capture, then open it once
+   so it finishes installing simulator components.
+2. Install Android Studio or Android platform-tools if you need Android capture.
+   Boot an emulator at least once, or attach a USB-debuggable device.
+3. Install Node.js 18 or newer.
+4. Clone this console repo anywhere on disk and run `npm install`.
+5. Add `~/.mobile-api-console.json` with the real app identifiers:
+   iOS subsystem/category, Android package/tag, and optionally the Android
+   device serial or `adb` path.
+6. Add the debug-only emitter to the mobile app repo. See
+   [Mobile App Setup](docs/MOBILE_APP_SETUP.md), including the copy-paste
+   assistant prompt if you want a coding assistant to wire it.
+7. Verify raw logs first:
+   `xcrun simctl spawn booted log stream ...` for iOS and
+   `adb logcat -v threadtime -T 1 API_CURL:D '*:S'` for Android.
+8. Start the console with `npm start`, or install the LaunchAgent for daily
+   background use.
+9. Open `http://localhost:3957`, trigger app requests, and confirm sessions
+   populate for the available platform(s).
 
 ### Install Node.js on macOS
 
@@ -100,6 +134,17 @@ the path of your iOS or Android app repository. App-side setup happens inside
 the mobile app project, while this console only reads the emitted OSLog or
 Logcat output through `xcrun` / `adb` and your local config.
 
+For a new target machine, the minimum handoff is intentionally small:
+
+1. The URL or name of this console repo.
+2. The local mobile app repo to instrument.
+3. The real app identifiers, if known: iOS subsystem/category and Android
+   package/tag.
+
+With those pieces, a coding assistant can follow this README plus
+[Mobile App Setup](docs/MOBILE_APP_SETUP.md) to install the console, create
+`~/.mobile-api-console.json`, and add the debug-only mobile app log emitter.
+
 The only runtime dependency is [`better-sqlite3`](https://github.com/WiseLibs/better-sqlite3), used to persist sessions and events. On macOS with a recent Node version it installs from a prebuilt binary, so there's no compile step in practice.
 
 By default the database lives at:
@@ -124,8 +169,52 @@ That document covers:
 - iOS via OSLog (`subsystem` + `category` of your choice).
 - Android via Logcat (tag `API_CURL` by default).
 - A copy-paste **agent-neutral setup prompt** at the bottom that you can hand
-  to Claude Code, Codex, Cursor, Antigravity, or any other coding assistant
-  inside your mobile-app repo so it does the wiring for you.
+  to any coding assistant inside your mobile-app repo so it does the wiring
+  for you.
+
+### Target-machine assistant handoff prompt
+
+Use this prompt when a coding assistant is setting up a new machine. Replace
+the placeholders before sending it:
+
+```text
+You are setting up Mobile API Console on this machine.
+
+Inputs:
+- Console repo: <repo URL or repo name>
+- Mobile app repo path(s): <iOS repo path, Android repo path, or both>
+- Desired platform(s): <iOS only | Android only | both>
+- Known identifiers, if any:
+  - iOS subsystem: <value or unknown>
+  - iOS category: api-console
+  - Android applicationId: <value or unknown>
+  - Android Logcat tag: API_CURL
+
+Tasks:
+1. Clone or open the console repo and read README.md plus docs/MOBILE_APP_SETUP.md.
+2. Install console dependencies with npm install.
+3. Confirm platform tools:
+   - macOS+iOS: Xcode is installed, xcrun simctl works, and a simulator is booted.
+   - Android: adb works and adb devices lists a device/emulator.
+4. Create ~/.mobile-api-console.json for the available platform(s). Do not commit
+   this file.
+5. In the mobile app repo(s), add the debug-only log emitter exactly as described
+   in docs/MOBILE_APP_SETUP.md. If both platform repos are present and the desired
+   platform is "both", wire both.
+6. Verify raw logs before relying on the browser:
+   - iOS: xcrun simctl spawn booted log stream --predicate 'subsystem == "<subsystem>" AND category == "api-console"'
+   - Android: adb logcat -v threadtime -T 1 API_CURL:D '*:S'
+7. Start the console with npm start, or configure the macOS LaunchAgent if this is
+   a Mac intended for daily use.
+8. Report the final config values, files changed in the mobile app repo(s), and
+   one sample raw log block from each configured platform.
+
+Important constraints:
+- Do not hardcode local mobile app paths into the console repo.
+- Do not remove existing app networking behavior.
+- Keep all emitters debug-only.
+- On Windows or Ubuntu, configure Android/Demo only; iOS logging is macOS-only.
+```
 
 ### TL;DR — the wire format
 
@@ -178,7 +267,7 @@ just as well for quick checks and is the right choice the first few times
 you're tweaking config.
 
 - **[Recommended — run as a macOS service](#run-as-a-macos-service-recommended)**
-  via a LaunchAgent. Survives reboots, starts on demand, controlled with the
+  via a LaunchAgent. Starts on demand and is controlled with the
   `bin/` scripts.
 - **[Quick / foreground — `npm start`](#run-in-the-foreground-npm-start)**.
   Useful when you're iterating on config files, want logs in your current
@@ -206,6 +295,12 @@ http://localhost:3957
 npm run demo
 ```
 
+Demo mode does not read your mobile app, `xcrun`, or `adb`. It generates fake
+API requests so you can verify the browser UI, SQLite persistence, filtering,
+copy buttons, and service setup before wiring a real app. Demo is also the
+fallback when neither iOS nor Android is available. Use it to check the console
+itself; use iOS or Android mode to inspect real app traffic.
+
 ### CLI options
 
 ```sh
@@ -220,7 +315,7 @@ npm start -- --android-tag API_CURL
 npm start -- --android-device emulator-5554
 npm start -- --adb-path /opt/homebrew/share/android-sdk/platform-tools/adb
 
-# Source selection (auto = pick first available; defaults to auto)
+# Initial view selection
 npm start -- --source ios
 npm start -- --source android
 npm start -- --source demo
@@ -243,7 +338,7 @@ MOBILE_API_CONSOLE_ANDROID_LOG_TAG=API_CURL npm start
 MOBILE_API_CONSOLE_ANDROID_DEVICE=emulator-5554 npm start
 ADB_PATH=/opt/homebrew/share/android-sdk/platform-tools/adb npm start
 
-# Source selection
+# Initial view selection
 MOBILE_API_CONSOLE_SOURCE=android npm start
 
 # General
@@ -254,8 +349,9 @@ MOBILE_API_CONSOLE_DB="$HOME/Library/Application Support/mobile-api-console/data
 
 ### Per-developer config file (`~/.mobile-api-console.json`)
 
-For real bundle ids, Logcat tags, and device serials — anything you don't want
-to type on every launch and definitely don't want committed to the repo —
+For real bundle ids, OSLog subsystem/category values, Logcat tags, and device
+serials — anything you don't want to type on every launch and definitely don't
+want committed to the repo —
 drop a JSON file at `~/.mobile-api-console.json` (also picked up from the
 current working directory, and from `$MOBILE_API_CONSOLE_CONFIG` if you set
 it). This file is gitignored.
@@ -280,6 +376,76 @@ it). This file is gitignored.
 Resolution order is **CLI flag > environment variable > config file > public
 default**, so any value can be overridden ad-hoc without editing the file.
 
+`defaultSource` / `--source` / `MOBILE_API_CONSOLE_SOURCE` controls the
+initially visible view. With `auto`, iOS is shown first when available, then
+Android, then Demo. When both iOS and Android are available, both still record
+in the background. Selecting `demo` intentionally runs Demo-only mode.
+
+### Configuration recipes
+
+**iOS only** — use this when the developer only has Xcode / Simulator:
+
+```json
+{
+  "defaultSource": "ios",
+  "ios": {
+    "subsystem": "com.mycompany.myapp",
+    "category": "api-console",
+    "simulator": "booted"
+  }
+}
+```
+
+**Android only** — use this when the developer only has Android tools:
+
+```json
+{
+  "defaultSource": "android",
+  "android": {
+    "applicationId": "com.mycompany.myapp",
+    "logTag": "API_CURL",
+    "deviceSerial": null,
+    "adbPath": null
+  }
+}
+```
+
+If `adb` is not on `PATH`, either set `ANDROID_HOME`, `ANDROID_SDK_ROOT`, or
+put the absolute path in `android.adbPath`, for example:
+
+```json
+{
+  "android": {
+    "adbPath": "/Users/you/Library/Android/sdk/platform-tools/adb"
+  }
+}
+```
+
+**Both iOS and Android** — use this on a Mac that can run both apps. The
+console records both continuously and the dropdown chooses which history you
+are viewing:
+
+```json
+{
+  "defaultSource": "auto",
+  "ios": {
+    "subsystem": "com.mycompany.myapp",
+    "category": "api-console",
+    "simulator": "booted"
+  },
+  "android": {
+    "applicationId": "com.mycompany.myapp",
+    "logTag": "API_CURL",
+    "deviceSerial": null,
+    "adbPath": null
+  }
+}
+```
+
+The console repo can stay in one folder and the mobile app repos can live
+anywhere else. The only required connection is the emitted debug log format
+plus the matching identifiers above.
+
 When moving the tool to an Android developer's machine, the only setup they
 need (beyond `npm install`) is:
 
@@ -288,13 +454,44 @@ need (beyond `npm install`) is:
 2. Ensure `adb` is on `PATH`, or set `ADB_PATH` / `ANDROID_HOME` in the env or
    under `android.adbPath` in the config file.
 3. Start the console — either `npm start` for a foreground run, or install
-   the LaunchAgent below for the always-on flow.
+   the LaunchAgent below for the background flow.
+
+### Windows and Ubuntu notes
+
+These platforms are Android/Demo only. iOS logging is not available outside
+macOS. This project has been tested on macOS so far; Windows and Ubuntu should
+be treated as best-effort until someone validates them end-to-end.
+
+For Ubuntu:
+
+```sh
+npm install
+MOBILE_API_CONSOLE_DB="$HOME/.local/share/mobile-api-console/data.db" \
+MOBILE_API_CONSOLE_SOURCE=android \
+npm start
+```
+
+For Windows PowerShell:
+
+```powershell
+npm install
+$env:MOBILE_API_CONSOLE_DB="$env:LOCALAPPDATA\mobile-api-console\data.db"
+$env:MOBILE_API_CONSOLE_SOURCE="android"
+npm start
+```
+
+Make sure `adb devices` lists an attached device or running emulator before
+starting the console. The macOS LaunchAgent section below does not apply to
+Windows or Ubuntu.
 
 ## Run as a macOS service (recommended)
 
-Installing a LaunchAgent keeps the console running in the background and
-restarts it on reboot, so `http://localhost:3957` is always reachable. This
-is the setup we use day-to-day.
+Installing a LaunchAgent keeps the console running in the background after you
+start it with the helper script, so `http://localhost:3957` is reachable
+without a terminal window. This is the setup we use day-to-day on macOS.
+The plist below uses `RunAtLoad=false` and `KeepAlive=false`, which means the
+helper script starts it on demand. If your team wants it to start automatically
+at login, change `RunAtLoad` to `true` after you understand that behavior.
 
 ### 1. Create the LaunchAgent plist
 
@@ -386,12 +583,11 @@ tail -f ~/Library/Logs/mobile-api-console.out.log
 
 ### 4. Quick switching while the service runs
 
-The header dropdown in the UI swaps the active source live — no need to restart
-the service when you move between the iOS Simulator, an Android emulator, and
-demo mode. Today that swap stops the previous source and starts the selected
-one; existing sessions remain available, but new logs from the previous
-platform are not captured while it is unselected. The chosen source is also
-exposed via:
+The header dropdown in the UI selects the visible platform live — no need to
+restart the service when you move between the iOS Simulator, an Android
+emulator, and demo mode. When multiple real sources are available, each keeps
+recording into its own SQLite session while you switch views. The selected
+view is also exposed via:
 
 ```sh
 curl http://localhost:3957/api/sources                              # current + available
@@ -409,8 +605,8 @@ mobile-api-console/
 ├── src/
 │   ├── config.js           # CLI / env / ~/.mobile-api-console.json resolution
 │   ├── platform.js         # xcrun + adb detection
-│   ├── sourceManager.js    # owns the selected live source + parser
-│   ├── eventStore.js       # session-scoped event store with SSE notifications
+│   ├── sourceManager.js    # owns live source recorders + parsers
+│   ├── eventStore.js       # source/session-scoped event store with SSE notifications
 │   ├── sseHub.js           # Server-Sent Events hub
 │   ├── logSource/          # SimulatorLogStream, AdbLogcatStream, DemoLogSource
 │   └── parsers/            # mobileNetworkParser (iOS) + androidApiCurlParser

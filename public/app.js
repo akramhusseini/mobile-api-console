@@ -34,6 +34,7 @@ const els = {
   detailContent: document.getElementById("detailContent"),
   detailHost: document.getElementById("detailHost"),
   detailTitle: document.getElementById("detailTitle"),
+  detailTitleCopy: document.getElementById("detailTitleCopy"),
   detailMethod: document.getElementById("detailMethod"),
   detailStatus: document.getElementById("detailStatus"),
   detailUrl: document.getElementById("detailUrl"),
@@ -104,6 +105,51 @@ function bindUi() {
     if (!text) return;
     await flashCopy(els.copyButton, text);
   });
+
+  bindCopyUrlPopup();
+}
+
+function bindCopyUrlPopup() {
+  els.detailTitle.addEventListener("mousedown", (event) => {
+    showCopyUrlPopup(event.clientX);
+  });
+  els.detailTitleCopy.addEventListener("mousedown", (event) => {
+    event.stopPropagation();
+  });
+  els.detailTitleCopy.addEventListener("click", async () => {
+    const url = els.detailUrl.textContent || "";
+    if (!url) return;
+    await flashCopy(els.detailTitleCopy, url);
+    setTimeout(hideCopyUrlPopup, 900);
+  });
+  document.addEventListener("mousedown", (event) => {
+    if (event.target === els.detailTitle || event.target === els.detailTitleCopy) return;
+    hideCopyUrlPopup();
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") hideCopyUrlPopup();
+  });
+  window.addEventListener("scroll", hideCopyUrlPopup, true);
+}
+
+function showCopyUrlPopup(clientX) {
+  const popup = els.detailTitleCopy;
+  const title = els.detailTitle;
+  if (!els.detailUrl.textContent) return;
+  const rect = title.getBoundingClientRect();
+  const min = rect.left + 40;
+  const max = rect.right - 40;
+  const anchorX = Math.max(min, Math.min(max, clientX));
+  popup.style.left = `${anchorX - rect.left}px`;
+  popup.style.top = "0";
+  popup.textContent = "Copy URL";
+  popup.hidden = false;
+}
+
+function hideCopyUrlPopup() {
+  if (!els.detailTitleCopy.hidden) {
+    els.detailTitleCopy.hidden = true;
+  }
 }
 
 const LAYOUT_STORAGE_KEY = "mobileApiConsole.layout";
@@ -557,11 +603,12 @@ function renderList() {
     const active = event.id === state.selectedId ? "active" : "";
     const statusClass = statusClassName(event);
     const statusText = event.statusCode || event.state || "pending";
+    const rawPath = event.path || "(unknown endpoint)";
     return `
-      <button class="request-row ${active} ${statusClass}" data-id="${escapeHtml(event.id)}">
+      <button class="request-row ${active} ${statusClass}" data-id="${escapeHtml(event.id)}" title="${escapeHtml(rawPath)}">
         <span class="method-badge">${escapeHtml(event.method || "GET")}</span>
         <span class="row-main">
-          <span class="row-path">${escapeHtml(event.path || "(unknown endpoint)")}</span>
+          <span class="row-path">${escapeHtml(decodeForDisplay(rawPath))}</span>
           <span class="row-host">${escapeHtml(event.host || "")}</span>
         </span>
         <span class="row-time">${escapeHtml(relativeTime(event.updatedAt))}</span>
@@ -581,11 +628,14 @@ function renderDetail() {
   const event = selectedEvent();
   els.emptyState.classList.toggle("hidden", Boolean(event));
   els.detailContent.classList.toggle("hidden", !event);
+  hideCopyUrlPopup();
 
   if (!event) return;
 
   els.detailHost.textContent = event.host || "";
-  els.detailTitle.textContent = event.path || event.url || "(unknown endpoint)";
+  const rawTitle = event.path || event.url || "(unknown endpoint)";
+  els.detailTitle.textContent = decodeForDisplay(rawTitle);
+  els.detailTitle.title = rawTitle;
   els.detailMethod.textContent = event.method || "GET";
   els.detailStatus.textContent = event.statusCode || event.state || "pending";
   els.detailStatus.className = `status-badge ${statusClassName(event)}`;
@@ -842,4 +892,13 @@ function escapeHtml(value) {
     .replaceAll("<", "&lt;")
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;");
+}
+
+function decodeForDisplay(value) {
+  const str = String(value ?? "");
+  try {
+    return decodeURI(str);
+  } catch {
+    return str;
+  }
 }

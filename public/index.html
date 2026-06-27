@@ -17,6 +17,7 @@
           </div>
         </div>
         <div class="top-actions">
+          <button id="toggleListButton" class="icon-button" type="button" title="Hide call list" aria-label="Hide call list" aria-pressed="false">‹ Hide list</button>
           <label class="source-picker-label" for="sourcePicker">Source</label>
           <select id="sourcePicker" class="select-input source-picker" aria-label="Log source"></select>
           <button id="restartButton" class="icon-button" title="Restart stream" aria-label="Restart stream">Restart</button>
@@ -42,7 +43,7 @@
         </label>
       </section>
 
-      <main class="workspace">
+      <main id="workspace" class="workspace">
         <aside class="request-list">
           <div class="list-meta">
             <span id="countText">0 calls</span>
@@ -50,6 +51,8 @@
           </div>
           <div id="requestList" class="request-items"></div>
         </aside>
+
+        <div id="paneDivider" class="pane-divider" role="separator" aria-orientation="vertical" aria-label="Resize panes" aria-valuemin="0" aria-valuemax="100" aria-valuenow="38" tabindex="0"></div>
 
         <section class="detail-pane">
           <div id="emptyState" class="empty-state">

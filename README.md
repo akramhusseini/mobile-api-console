@@ -24,6 +24,11 @@ Electron wrapper and no frontend build step. The only runtime package is
   body, also rendered as a tree when JSON), Response (raw response
   body), cURL, Errors, and Raw log lines.
 - Search and filter by URL, status, method.
+- Resizable workspace: drag the divider between the call list and the
+  detail pane to change their proportions, or use the "Hide list"
+  toggle in the header to collapse the list entirely (it can be
+  restored at any time from the same button). Layout choices persist
+  across reloads via `localStorage`.
 - Demo mode for offline development of the UI itself.
 - SQLite-backed session history so recent captures remain available after a
   restart. Each session is tagged with the platform (`ios-simulator`,

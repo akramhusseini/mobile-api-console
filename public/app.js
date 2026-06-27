@@ -13,6 +13,9 @@ const state = {
 };
 
 const els = {
+  workspace: document.getElementById("workspace"),
+  paneDivider: document.getElementById("paneDivider"),
+  toggleListButton: document.getElementById("toggleListButton"),
   sourceDot: document.getElementById("sourceDot"),
   sourceText: document.getElementById("sourceText"),
   sourcePicker: document.getElementById("sourcePicker"),
@@ -39,6 +42,8 @@ const els = {
   copyButton: document.getElementById("copyButton")
 };
 
+loadLayoutState();
+bindLayout();
 connectEvents();
 bindUi();
 
@@ -99,6 +104,144 @@ function bindUi() {
     if (!text) return;
     await flashCopy(els.copyButton, text);
   });
+}
+
+const LAYOUT_STORAGE_KEY = "mobileApiConsole.layout";
+const LIST_MIN_PX = 80;
+const LIST_DEFAULT_VW = 0.38;
+const LIST_COLLAPSE_THRESHOLD = 60;
+const LIST_KEYBOARD_STEP = 24;
+
+let dragState = null;
+
+function bindLayout() {
+  if (!els.paneDivider) return;
+
+  els.paneDivider.addEventListener("pointerdown", onDividerPointerDown);
+  els.paneDivider.addEventListener("dblclick", () => {
+    setListCollapsed(false);
+    setListWidthPx(Math.max(LIST_MIN_PX, window.innerWidth * LIST_DEFAULT_VW));
+    saveLayoutState();
+  });
+  els.paneDivider.addEventListener("keydown", (event) => {
+    if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
+      const delta = event.key === "ArrowLeft" ? -LIST_KEYBOARD_STEP : LIST_KEYBOARD_STEP;
+      const current = currentListWidthPx();
+      setListCollapsed(false);
+      setListWidthPx(current + delta);
+      saveLayoutState();
+      event.preventDefault();
+    } else if (event.key === "Enter" || event.key === " ") {
+      toggleListCollapsed();
+      event.preventDefault();
+    }
+  });
+
+  els.toggleListButton.addEventListener("click", toggleListCollapsed);
+}
+
+function onDividerPointerDown(event) {
+  if (event.button !== 0) return;
+  const workspaceRect = els.workspace.getBoundingClientRect();
+  dragState = {
+    pointerId: event.pointerId,
+    workspaceLeft: workspaceRect.left,
+    workspaceRight: workspaceRect.right
+  };
+  els.paneDivider.setPointerCapture(event.pointerId);
+  els.paneDivider.classList.add("dragging");
+  document.body.style.cursor = "col-resize";
+  els.paneDivider.addEventListener("pointermove", onDividerPointerMove);
+  els.paneDivider.addEventListener("pointerup", onDividerPointerUp);
+  els.paneDivider.addEventListener("pointercancel", onDividerPointerUp);
+  event.preventDefault();
+}
+
+function onDividerPointerMove(event) {
+  if (!dragState) return;
+  const width = event.clientX - dragState.workspaceLeft;
+  if (width < LIST_COLLAPSE_THRESHOLD) {
+    setListCollapsed(true);
+    return;
+  }
+  setListCollapsed(false);
+  setListWidthPx(width);
+}
+
+function onDividerPointerUp(event) {
+  if (!dragState) return;
+  els.paneDivider.releasePointerCapture(dragState.pointerId);
+  els.paneDivider.classList.remove("dragging");
+  document.body.style.cursor = "";
+  els.paneDivider.removeEventListener("pointermove", onDividerPointerMove);
+  els.paneDivider.removeEventListener("pointerup", onDividerPointerUp);
+  els.paneDivider.removeEventListener("pointercancel", onDividerPointerUp);
+  dragState = null;
+  saveLayoutState();
+}
+
+function toggleListCollapsed() {
+  const collapsed = els.workspace.dataset.listCollapsed !== "true";
+  setListCollapsed(collapsed);
+  saveLayoutState();
+}
+
+function setListCollapsed(collapsed) {
+  els.workspace.dataset.listCollapsed = collapsed ? "true" : "false";
+  els.toggleListButton.setAttribute("aria-pressed", String(collapsed));
+  els.toggleListButton.textContent = collapsed ? "› Show list" : "‹ Hide list";
+  els.toggleListButton.title = collapsed ? "Show call list" : "Hide call list";
+  els.toggleListButton.setAttribute("aria-label", els.toggleListButton.title);
+  const valueNow = collapsed ? 0 : Math.round((currentListWidthPx() / window.innerWidth) * 100);
+  els.paneDivider.setAttribute("aria-valuenow", String(valueNow));
+}
+
+function setListWidthPx(width) {
+  const clamped = Math.max(LIST_MIN_PX, Math.min(width, window.innerWidth * 0.6));
+  els.workspace.style.setProperty("--list-width", `${Math.round(clamped)}px`);
+  els.paneDivider.setAttribute("aria-valuenow", String(Math.round((clamped / window.innerWidth) * 100)));
+}
+
+function currentListWidthPx() {
+  const value = els.workspace.style.getPropertyValue("--list-width");
+  if (value && value.endsWith("px")) return Number.parseFloat(value);
+  return window.innerWidth * LIST_DEFAULT_VW;
+}
+
+function saveLayoutState() {
+  try {
+    const payload = {
+      width: els.workspace.style.getPropertyValue("--list-width") || "",
+      collapsed: els.workspace.dataset.listCollapsed === "true"
+    };
+    localStorage.setItem(LAYOUT_STORAGE_KEY, JSON.stringify(payload));
+  } catch {
+    // localStorage unavailable (private mode, etc.) — skip silently.
+  }
+}
+
+function loadLayoutState() {
+  if (!els.workspace) return;
+  try {
+    const raw = localStorage.getItem(LAYOUT_STORAGE_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed.width === "string" && parsed.width.endsWith("px")) {
+        els.workspace.style.setProperty("--list-width", parsed.width);
+      }
+      if (parsed && parsed.collapsed) {
+        els.workspace.dataset.listCollapsed = "true";
+      }
+    }
+  } catch {
+    // Ignore malformed persisted state.
+  }
+  // Initialise button label / aria attrs to match current state.
+  const collapsed = els.workspace.dataset.listCollapsed === "true";
+  els.toggleListButton.setAttribute("aria-pressed", String(collapsed));
+  els.toggleListButton.textContent = collapsed ? "› Show list" : "‹ Hide list";
+  els.toggleListButton.title = collapsed ? "Show call list" : "Hide call list";
+  els.toggleListButton.setAttribute("aria-label", els.toggleListButton.title);
 }
 
 async function flashCopy(button, text) {

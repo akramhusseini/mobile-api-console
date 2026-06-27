@@ -192,17 +192,60 @@ button:focus-visible {
 }
 
 .workspace {
+  --list-width: 38vw;
+  --list-min: 80px;
+  --list-max: 60vw;
   min-height: 0;
   display: grid;
-  grid-template-columns: minmax(320px, 38vw) minmax(0, 1fr);
+  grid-template-columns: min(max(var(--list-width), var(--list-min)), var(--list-max)) 6px minmax(0, 1fr);
+}
+
+.workspace[data-list-collapsed="true"] {
+  grid-template-columns: 0 6px minmax(0, 1fr);
 }
 
 .request-list {
   min-height: 0;
-  border-right: 1px solid var(--border);
   background: #11161d;
   display: grid;
   grid-template-rows: auto 1fr;
+  overflow: hidden;
+}
+
+.pane-divider {
+  position: relative;
+  cursor: col-resize;
+  background: transparent;
+  touch-action: none;
+  user-select: none;
+}
+
+.pane-divider::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 1px;
+  background: var(--border);
+  transform: translateX(-50%);
+  transition: background 120ms ease, width 120ms ease;
+}
+
+.pane-divider:hover::after,
+.pane-divider:focus-visible::after,
+.pane-divider.dragging::after {
+  background: var(--accent);
+  width: 3px;
+}
+
+.pane-divider:focus-visible {
+  outline: none;
+}
+
+.workspace[data-list-collapsed="true"] .pane-divider::after {
+  background: var(--accent);
+  width: 2px;
 }
 
 .list-meta {
@@ -629,13 +672,21 @@ button:focus-visible {
     justify-content: flex-start;
   }
 
-  .workspace {
+  .workspace,
+  .workspace[data-list-collapsed="true"] {
     grid-template-columns: 1fr;
     grid-template-rows: 42vh minmax(0, 1fr);
   }
 
+  .workspace[data-list-collapsed="true"] {
+    grid-template-rows: 0 minmax(0, 1fr);
+  }
+
+  .pane-divider {
+    display: none;
+  }
+
   .request-list {
-    border-right: 0;
     border-bottom: 1px solid var(--border);
   }
 }

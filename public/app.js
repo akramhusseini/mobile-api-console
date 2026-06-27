@@ -485,12 +485,18 @@ async function switchToSession(id) {
 
 function renderSessionPicker() {
   if (!els.sessionPicker) return;
-  const sessions = state.sessions || [];
+  const sessions = (state.sessions || []).filter(isVisibleSession);
   els.sessionPicker.innerHTML = sessions.map((session) => {
     const label = formatSessionLabel(session);
     const selected = session.id === state.activeSessionId ? " selected" : "";
     return `<option value="${session.id}"${selected}>${escapeHtml(label)}</option>`;
   }).join("");
+}
+
+function isVisibleSession(session) {
+  if (session.id === state.currentSessionId) return true;
+  if (session.id === state.activeSessionId) return true;
+  return (session.eventCount || 0) > 0;
 }
 
 function formatSessionLabel(session) {

@@ -680,7 +680,7 @@ function renderTabContent(event) {
     return;
   }
   if (tab === "curl") {
-    renderTextTab(container, event.curl || "", "No cURL command captured yet.", event.curl);
+    renderCurlTab(container, event.curl || "");
     return;
   }
   if (tab === "errors") {
@@ -692,6 +692,37 @@ function renderTabContent(event) {
     const text = (event.raw || []).join("\n");
     renderTextTab(container, text, "No raw lines captured.", event.raw?.length);
   }
+}
+
+function renderCurlTab(container, curl) {
+  if (!curl) {
+    const empty = document.createElement("div");
+    empty.className = "tab-empty";
+    empty.textContent = "No cURL command captured yet.";
+    container.appendChild(empty);
+    return;
+  }
+
+  const wrap = document.createElement("div");
+  wrap.className = "curl-wrap";
+
+  const copy = document.createElement("button");
+  copy.type = "button";
+  copy.className = "inline-copy-button";
+  copy.title = "Copy cURL";
+  copy.setAttribute("aria-label", "Copy cURL");
+  copy.textContent = "Copy";
+  copy.addEventListener("click", async () => {
+    await flashCopy(copy, curl);
+  });
+  wrap.appendChild(copy);
+
+  const pre = document.createElement("pre");
+  pre.className = "detail-pre";
+  pre.textContent = curl;
+  wrap.appendChild(pre);
+
+  container.appendChild(wrap);
 }
 
 function renderTextTab(container, text, emptyMessage, hasContent) {

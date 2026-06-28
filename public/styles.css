@@ -390,6 +390,7 @@ button:focus-visible {
 }
 
 .detail-content {
+  min-width: 0;
   min-height: 0;
   display: grid;
   grid-template-rows: auto auto minmax(0, 1fr);
@@ -517,19 +518,30 @@ button:focus-visible {
   flex: 0 0 auto;
 }
 
+.tabbar-row {
+  display: flex;
+  align-items: stretch;
+  min-width: 0;
+  background: #10151b;
+  border-bottom: 1px solid var(--border);
+}
+
 .tabbar {
+  flex: 1 1 auto;
+  min-width: 0;
   height: 45px;
   padding: 6px 10px;
-  border-bottom: 1px solid var(--border);
   display: flex;
   align-items: center;
   gap: 6px;
-  background: #10151b;
+  overflow-x: auto;
+  scrollbar-width: thin;
 }
 
 .tab-button {
   min-height: 31px;
   color: var(--muted);
+  flex: 0 0 auto;
 }
 
 .tab-button.active {
@@ -539,7 +551,9 @@ button:focus-visible {
 }
 
 .copy-button {
-  margin-left: auto;
+  flex: 0 0 auto;
+  align-self: center;
+  margin: 0 10px 0 6px;
   min-height: 31px;
 }
 
@@ -556,6 +570,30 @@ button:focus-visible {
   overflow-wrap: anywhere;
   color: #d6e1ef;
   font: 12px/1.55 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+}
+
+.curl-wrap {
+  position: relative;
+}
+
+.inline-copy-button {
+  position: absolute;
+  top: 10px;
+  right: 14px;
+  z-index: 1;
+  border: 1px solid var(--border);
+  color: var(--text);
+  background: var(--panel-2);
+  border-radius: 7px;
+  min-height: 28px;
+  padding: 0 10px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.inline-copy-button:hover {
+  border-color: #435166;
+  background: #202936;
 }
 
 .tab-empty {

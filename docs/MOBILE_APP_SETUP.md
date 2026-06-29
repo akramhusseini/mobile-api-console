@@ -160,7 +160,7 @@ extension NetworkManager {
         var curl = "curl -X \(request.httpMethod ?? "GET")"
 
         request.allHTTPHeaderFields?.forEach { key, value in
-            curl += " \\\n  -H '\(key): \(value)')"
+            curl += " \\\n  -H '\(key): \(value)'"
         }
         if let body = request.httpBody, let text = String(data: body, encoding: .utf8) {
             curl += " \\\n  -d '\(text)'"

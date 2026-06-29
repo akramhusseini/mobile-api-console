@@ -25,13 +25,40 @@ class SseHub {
   }
 
   send(client, type, payload) {
-    client.res.write(`event: ${type}\n`);
-    client.res.write(`data: ${JSON.stringify(payload)}\n\n`);
+    try {
+      client.res.write(`event: ${type}\n`);
+      client.res.write(`data: ${JSON.stringify(payload)}\n\n`);
+    } catch {
+      this.clients.delete(client);
+      try { client.res.end(); } catch { /* already torn down */ }
+    }
   }
 
   broadcast(type, payload) {
     for (const client of this.clients) {
       this.send(client, type, payload);
+    }
+  }
+
+  startHeartbeat(intervalMs = 20000) {
+    if (this.heartbeat) return;
+    this.heartbeat = setInterval(() => {
+      for (const client of [...this.clients]) {
+        try {
+          client.res.write(": ping\n\n");
+        } catch {
+          this.clients.delete(client);
+          try { client.res.end(); } catch { /* already torn down */ }
+        }
+      }
+    }, intervalMs);
+    this.heartbeat.unref?.();
+  }
+
+  stopHeartbeat() {
+    if (this.heartbeat) {
+      clearInterval(this.heartbeat);
+      this.heartbeat = null;
     }
   }
 

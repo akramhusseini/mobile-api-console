@@ -35,6 +35,7 @@ async function main() {
 
   store = new EventStore({ storage });
   hub = new SseHub();
+  hub.startHeartbeat();
 
   sourceManager.store = store;
   sourceManager.hub = hub;
@@ -205,7 +206,10 @@ function shutdown() {
   }
 
   shuttingDown = true;
-  if (hub) hub.closeAll();
+  if (hub) {
+    hub.stopHeartbeat();
+    hub.closeAll();
+  }
 
   if (sourceManager) sourceManager.stop();
   try {

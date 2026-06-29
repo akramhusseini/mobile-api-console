@@ -900,9 +900,10 @@ function abbreviateListStatus(event, fallback) {
   if (event.statusCode !== null && event.statusCode !== undefined && event.statusCode !== "") {
     return String(event.statusCode);
   }
-  if (event.state === "pending") return "…";
-  if (event.state === "success") return "OK";
-  if (event.state === "error") return "ERR";
+  const state = event.state || "pending";
+  if (state === "pending") return "…";
+  if (state === "success") return "OK";
+  if (state === "error") return "ERR";
   return fallback;
 }
 

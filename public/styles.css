@@ -335,6 +335,7 @@ button:focus-visible {
   align-items: center;
   justify-content: center;
   min-width: 34px;
+  max-width: 100%;
   height: 20px;
   padding: 0 6px;
   border-radius: 5px;
@@ -344,6 +345,9 @@ button:focus-visible {
   font-variant-numeric: tabular-nums;
   background: rgba(152, 172, 190, 0.14);
   color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .status-pill.success {

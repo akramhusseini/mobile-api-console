@@ -489,9 +489,12 @@ Windows or Ubuntu.
 Installing a LaunchAgent keeps the console running in the background after you
 start it with the helper script, so `http://localhost:3957` is reachable
 without a terminal window. This is the setup we use day-to-day on macOS.
-The plist below uses `RunAtLoad=false` and `KeepAlive=false`, which means the
-helper script starts it on demand. If your team wants it to start automatically
-at login, change `RunAtLoad` to `true` after you understand that behavior.
+The plist below uses `RunAtLoad=true` and `KeepAlive=true` with a
+`ThrottleInterval` of 10 seconds, which means launchd starts the console at
+login and restarts it within 10 seconds if it ever exits. To switch to the
+opt-in model (start it on demand with `bin/start-service` only), set
+`RunAtLoad` to `false` and `KeepAlive` to `false` after you understand that
+behavior.
 
 ### 1. Create the LaunchAgent plist
 
@@ -530,10 +533,13 @@ your machine (`echo "$HOME"` and `which node`):
     </dict>
 
     <key>RunAtLoad</key>
-    <false/>
+    <true/>
 
     <key>KeepAlive</key>
-    <false/>
+    <true/>
+
+    <key>ThrottleInterval</key>
+    <integer>10</integer>
 
     <key>StandardOutPath</key>
     <string>__YOUR_HOME__/Library/Logs/mobile-api-console.out.log</string>

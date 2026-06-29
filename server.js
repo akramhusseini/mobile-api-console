@@ -22,6 +22,7 @@ let storage;
 let store;
 let sourceManager;
 let hub;
+let retentionTimer = null;
 
 main().catch((error) => {
   console.error(`Mobile API Console failed to start: ${error.message}`);
@@ -43,6 +44,10 @@ async function main() {
   store.on("upsert", (event) => hub.broadcast("event-upsert", event));
   store.on("session-start", (payload) => hub.broadcast("session-start", payload));
   sourceManager.on("changed", (payload) => hub.broadcast("source-changed", payload));
+
+  if (config.cleanupOnStart) runRetention();
+  retentionTimer = setInterval(runRetention, 24 * 60 * 60 * 1000);
+  retentionTimer.unref?.();
 
   server = http.createServer(handleRequest);
   server.on("error", (error) => {
@@ -206,6 +211,10 @@ function shutdown() {
   }
 
   shuttingDown = true;
+  if (retentionTimer) {
+    clearInterval(retentionTimer);
+    retentionTimer = null;
+  }
   if (hub) {
     hub.stopHeartbeat();
     hub.closeAll();
@@ -241,6 +250,20 @@ function parseSessionId(value) {
   if (value === null || value === undefined || value === "") return null;
   const parsed = Number.parseInt(value, 10);
   return Number.isFinite(parsed) ? parsed : null;
+}
+
+function runRetention() {
+  const cutoff = new Date(Date.now() - config.retentionDays * 86400000).toISOString();
+  const removed = storage.pruneSessionsBefore(cutoff);
+  if (removed > 0) storage.vacuum();
+  const mb = storage.databaseSizeBytes() / (1024 * 1024);
+  if (mb > config.maxDbMb) {
+    // TODO: hard size-based eviction (delete oldest sessions until under the cap)
+    console.warn(`Mobile API Console DB is ${mb.toFixed(0)}MB (> ${config.maxDbMb}MB cap).`);
+  }
+  if (removed > 0) {
+    console.log(`Retention: removed ${removed} session(s) older than ${config.retentionDays}d.`);
+  }
 }
 
 function publicConfig() {

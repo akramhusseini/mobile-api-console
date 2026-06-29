@@ -333,6 +333,51 @@ button:focus-visible {
   color: #ffb7bf;
 }
 
+/* REST method tints. Reads (GET/HEAD/OPTIONS) sit in the cool/green family,
+   writes (POST/PUT/PATCH) in the warm/blue family, DELETE in red, fallback
+   in muted gray. */
+.method-badge.method-get {
+  background: rgba(76, 195, 138, 0.18);
+  color: #9be4bf;
+  box-shadow: inset 0 0 0 1px rgba(76, 195, 138, 0.35);
+}
+
+.method-badge.method-post {
+  background: rgba(255, 189, 90, 0.18);
+  color: #ffd28a;
+  box-shadow: inset 0 0 0 1px rgba(255, 189, 90, 0.4);
+}
+
+.method-badge.method-put {
+  background: rgba(75, 163, 255, 0.20);
+  color: #a9d2ff;
+  box-shadow: inset 0 0 0 1px rgba(75, 163, 255, 0.45);
+}
+
+.method-badge.method-patch {
+  background: rgba(181, 140, 255, 0.20);
+  color: #d4baff;
+  box-shadow: inset 0 0 0 1px rgba(181, 140, 255, 0.45);
+}
+
+.method-badge.method-delete {
+  background: rgba(255, 92, 108, 0.20);
+  color: #ffb7bf;
+  box-shadow: inset 0 0 0 1px rgba(255, 92, 108, 0.45);
+}
+
+.method-badge.method-head,
+.method-badge.method-options {
+  background: rgba(152, 172, 190, 0.16);
+  color: #c0cdda;
+  box-shadow: inset 0 0 0 1px rgba(152, 172, 190, 0.30);
+}
+
+.method-badge.method-other {
+  background: #223040;
+  color: #c8ddf5;
+}
+
 .status-badge.pending {
   background: rgba(255, 189, 90, 0.14);
   color: #ffd494;

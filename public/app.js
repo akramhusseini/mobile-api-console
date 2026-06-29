@@ -618,7 +618,7 @@ function renderList() {
     const rawPath = event.path || "(unknown endpoint)";
     return `
       <button class="request-row ${active} ${statusClass}" data-id="${escapeHtml(event.id)}" title="${escapeHtml(rawPath)}">
-        <span class="method-badge">${escapeHtml(event.method || "GET")}</span>
+        <span class="method-badge ${methodClassName(event)}">${escapeHtml(event.method || "GET")}</span>
         <span class="row-main">
           <span class="row-path">${escapeHtml(decodeForDisplay(rawPath))}</span>
           <span class="row-host">${escapeHtml(event.host || "")}</span>
@@ -649,6 +649,7 @@ function renderDetail() {
   els.detailTitle.textContent = decodeForDisplay(rawTitle);
   els.detailTitle.title = rawTitle;
   els.detailMethod.textContent = event.method || "GET";
+  els.detailMethod.className = `method-badge ${methodClassName(event)}`;
   els.detailStatus.textContent = event.statusCode || event.state || "pending";
   els.detailStatus.className = `status-badge ${statusClassName(event)}`;
 
@@ -887,6 +888,21 @@ function statusClassName(event) {
   if (event.state === "error" || Number(event.statusCode) >= 400) return "error";
   if (event.state === "success" || (event.statusCode >= 200 && event.statusCode < 400)) return "success";
   return "pending";
+}
+
+const METHOD_CLASS_MAP = {
+  GET: "method-get",
+  POST: "method-post",
+  PUT: "method-put",
+  PATCH: "method-patch",
+  DELETE: "method-delete",
+  HEAD: "method-head",
+  OPTIONS: "method-options"
+};
+
+function methodClassName(event) {
+  const upper = String(event.method || "GET").toUpperCase();
+  return METHOD_CLASS_MAP[upper] || "method-other";
 }
 
 function searchableText(event) {

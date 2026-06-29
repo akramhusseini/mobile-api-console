@@ -69,6 +69,36 @@ function pick(...values) {
   return undefined;
 }
 
+// Parse a positive integer with a fallback. Anything that isn't a finite
+// positive integer collapses to the fallback. Used for retentionDays,
+// maxDbMb, and maxEvents so an invalid env var (e.g.
+// MOBILE_API_CONSOLE_RETENTION_DAYS=abc) can't poison downstream Date math
+// or arithmetic and turn a misconfiguration into a launchd restart loop.
+function positiveIntFrom(...values) {
+  for (const value of values) {
+    if (value === undefined || value === null || value === "") continue;
+    const parsed = Number.parseInt(value, 10);
+    if (Number.isFinite(parsed) && parsed > 0) return parsed;
+  }
+  return undefined;
+}
+
+// Coerce a boolean-ish value. Accepts: true, 1, "1", "true", "yes", "on"
+// (case-insensitive) and any of false, 0, "0", "false", "no", "off" as
+// false. Anything that doesn't parse falls back to the default.
+function booleanFrom(value, fallback) {
+  if (value === undefined || value === null || value === "") return fallback;
+  if (typeof value === "boolean") return value;
+  if (typeof value === "number") {
+    if (value === 1) return true;
+    if (value === 0) return false;
+  }
+  const normalized = String(value).trim().toLowerCase();
+  if (["1", "true", "yes", "on"].includes(normalized)) return true;
+  if (["0", "false", "no", "off"].includes(normalized)) return false;
+  return fallback;
+}
+
 function normalizeSource(value) {
   const v = String(value || "").toLowerCase();
   if (v === "ios" || v === "android" || v === "demo" || v === "auto") return v;
@@ -185,10 +215,13 @@ function buildConfig(argv = process.argv.slice(2), env = process.env, cwd = proc
     demo,
     noStream,
     publicDir: "public",
-    maxEvents: Number.parseInt(env.MOBILE_API_CONSOLE_MAX_EVENTS || file.maxEvents || "400", 10),
-    retentionDays: Number.parseInt(env.MOBILE_API_CONSOLE_RETENTION_DAYS || file.retentionDays || "30", 10),
-    maxDbMb: Number.parseInt(env.MOBILE_API_CONSOLE_MAX_DB_MB || file.maxDbMb || "512", 10),
-    cleanupOnStart: (env.MOBILE_API_CONSOLE_CLEANUP_ON_START || String(file.cleanupOnStart ?? "1")) !== "0",
+    maxEvents: positiveIntFrom(env.MOBILE_API_CONSOLE_MAX_EVENTS, file.maxEvents) ?? 400,
+    retentionDays: positiveIntFrom(env.MOBILE_API_CONSOLE_RETENTION_DAYS, file.retentionDays) ?? 30,
+    maxDbMb: positiveIntFrom(env.MOBILE_API_CONSOLE_MAX_DB_MB, file.maxDbMb) ?? 512,
+    cleanupOnStart: booleanFrom(
+      pick(env.MOBILE_API_CONSOLE_CLEANUP_ON_START, file.cleanupOnStart),
+      true
+    ),
     databasePath: pick(
       readOption(argv, "db", undefined),
       env.MOBILE_API_CONSOLE_DB,

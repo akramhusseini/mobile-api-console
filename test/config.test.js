@@ -91,3 +91,74 @@ test("--source accepts ios, android, demo, auto", () => {
     }
   });
 });
+
+test("invalid numeric retention values fall back to defaults", () => {
+  withTempDir((cwd) => {
+    const config = buildConfig(
+      [],
+      {
+        HOME: cwd,
+        MOBILE_API_CONSOLE_RETENTION_DAYS: "abc",
+        MOBILE_API_CONSOLE_MAX_DB_MB: "-1",
+        MOBILE_API_CONSOLE_MAX_EVENTS: ""
+      },
+      cwd
+    );
+    assert.equal(config.retentionDays, 30);
+    assert.equal(config.maxDbMb, 512);
+    assert.equal(config.maxEvents, 400);
+  });
+});
+
+test("valid numeric retention values pass through", () => {
+  withTempDir((cwd) => {
+    const config = buildConfig(
+      [],
+      {
+        HOME: cwd,
+        MOBILE_API_CONSOLE_RETENTION_DAYS: "7",
+        MOBILE_API_CONSOLE_MAX_DB_MB: "1024",
+        MOBILE_API_CONSOLE_MAX_EVENTS: "600"
+      },
+      cwd
+    );
+    assert.equal(config.retentionDays, 7);
+    assert.equal(config.maxDbMb, 1024);
+    assert.equal(config.maxEvents, 600);
+  });
+});
+
+test("cleanupOnStart normalizes from env and JSON in all the obvious shapes", () => {
+  withTempDir((cwd) => {
+    const cases = [
+      [undefined, undefined, true],
+      ["1", undefined, true],
+      ["true", undefined, true],
+      ["yes", undefined, true],
+      ["on", undefined, true],
+      ["0", undefined, false],
+      ["false", undefined, false],
+      ["no", undefined, false],
+      ["off", undefined, false],
+      ["garbage", undefined, true], // default on
+      [undefined, true, true],
+      [undefined, false, false],
+      [undefined, "false", false],
+      [undefined, "0", false],
+      ["0", true, false], // env wins
+      ["1", false, true]  // env wins
+    ];
+    for (const [envValue, fileValue, expected] of cases) {
+      const env = { HOME: cwd };
+      if (envValue !== undefined) env.MOBILE_API_CONSOLE_CLEANUP_ON_START = envValue;
+      const file = {};
+      if (fileValue !== undefined) file.cleanupOnStart = fileValue;
+      const filePath = path.join(cwd, ".mobile-api-console.json");
+      if (fileValue !== undefined) fs.writeFileSync(filePath, JSON.stringify(file));
+      else if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+      const config = buildConfig([], env, cwd);
+      assert.equal(config.cleanupOnStart, expected,
+        `env=${envValue} file=${fileValue} expected ${expected} got ${config.cleanupOnStart}`);
+    }
+  });
+});

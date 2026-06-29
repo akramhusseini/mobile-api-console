@@ -95,7 +95,7 @@ async function handleRequest(req, res) {
       const sessionId = parseSessionId(sessionParam) ?? liveSession?.id ?? null;
       const session = sessionId ? store.decorateSession(storage.getSession(sessionId)) : null;
       return sendJson(res, {
-        events: sessionId ? store.eventsForSession(sessionId) : [],
+        events: sessionId ? store.eventsForSession(sessionId, { limit: config.maxEvents }) : [],
         currentSession: liveSession,
         currentSessions: store.currentSessions(),
         session,
@@ -135,7 +135,7 @@ async function handleRequest(req, res) {
       if (!session) return sendJson(res, { error: "Session not found" }, 404);
       return sendJson(res, {
         session,
-        events: store.eventsForSession(sessionId)
+        events: store.eventsForSession(sessionId, { limit: config.maxEvents })
       });
     }
 

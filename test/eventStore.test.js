@@ -109,3 +109,24 @@ test("snapshot honors maxEvents above the storage default of 500", () => {
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("eventsForSession with limit below storage's 500 default returns the limit", () => {
+  // Regression: /api/events and /api/sessions/:id/events used to call
+  // eventsForSession() with no limit, so a maxEvents=100 cap was silently
+  // overridden by storage's default LIMIT 500.
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "mobile-api-console-test-"));
+  const dbPath = path.join(dir, "data.db");
+  const storage = new SqliteStorage({ databasePath: dbPath }).init();
+  try {
+    const store = new EventStore({ storage, maxEvents: 100 });
+    store.init();
+    for (let i = 0; i < 250; i += 1) {
+      store.upsert({ id: `e-${i}`, method: "GET", url: `/${i}` });
+    }
+    const limited = store.eventsForSession(store.currentSession().id, { limit: 100 });
+    assert.equal(limited.length, 100, "eventsForSession must respect an explicit limit below 500");
+  } finally {
+    storage.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});

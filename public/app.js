@@ -534,6 +534,7 @@ async function switchToSession(id) {
   const payload = await response.json();
   state.activeSessionId = id;
   state.events = payload.events || [];
+  trimEventsToCap();
   state.selectedId = null;
   const replaced = state.sessions.findIndex((s) => s.id === payload.session.id);
   if (replaced >= 0) state.sessions[replaced] = payload.session;

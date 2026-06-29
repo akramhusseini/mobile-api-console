@@ -81,8 +81,9 @@ even when the browser is closed or the UI is looking at another platform.
 ### Source Health
 
 - Show whether the stream is connected, restarting, stalled, or failing.
-- Add server-sent event heartbeats so the browser can distinguish idle streams
-  from disconnected streams.
+- [x] Add server-sent event heartbeats so the browser can distinguish idle
+  streams from disconnected streams. `SseHub` now sends a `: ping` comment
+  every 20s and evicts clients whose sockets throw on write.
 - Surface common setup problems with clearer messages:
   - no booted iOS simulator
   - `xcrun` missing

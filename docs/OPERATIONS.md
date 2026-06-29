@@ -119,18 +119,26 @@ The app runs a time-based retention pass automatically:
   once every 24 hours while the server is running, sessions whose
   `started_at` (or `ended_at` if set) is older than `retentionDays` are
   deleted. Events cascade via `ON DELETE CASCADE`.
+- The currently-open session per source is always protected. Even a
+  long-running LaunchAgent whose live session has been open for weeks
+  will not be pruned while it is still active; it becomes prune-eligible
+  the moment it is closed and `retentionDays` has passed since
+  `ended_at`. On startup the protected list is empty (recordings haven't
+  started yet), so any stale open sessions left over from a previous
+  crash can still be cleaned up.
 - `VACUUM` is run after any prune that removed at least one session, so
   disk space is returned to the system.
 - The UI **Clear** action starts a fresh session for the current active
   source, but it is not intended to be long-term retention management.
 
-Settings (CLI flags, env vars, or `~/.mobile-api-console.json`):
+Settings (env vars or `~/.mobile-api-console.json`):
 
 | Setting | Default | Purpose |
 |---|---|---|
-| `MOBILE_API_CONSOLE_RETENTION_DAYS` | `30` | Sessions older than this are pruned. |
-| `MOBILE_API_CONSOLE_MAX_DB_MB` | `512` | When the DB exceeds this size, a warning is logged. |
-| `MOBILE_API_CONSOLE_CLEANUP_ON_START` | `1` | Run retention on startup (`0` to skip). |
+| `MOBILE_API_CONSOLE_RETENTION_DAYS` | `30` | Sessions older than this are pruned. Must be a positive integer; invalid values fall back to the default. |
+| `MOBILE_API_CONSOLE_MAX_DB_MB` | `512` | When the DB exceeds this size, a warning is logged. Must be a positive integer. |
+| `MOBILE_API_CONSOLE_CLEANUP_ON_START` | `1` | Run retention on startup. Accepts `1`/`0`, `true`/`false`, `yes`/`no`, `on`/`off` (case-insensitive). |
+| `MOBILE_API_CONSOLE_MAX_EVENTS` | `400` | Cap on the in-memory live snapshot per source. Must be a positive integer. |
 
 `MAX_DB_MB` is a warning only in v1 — hard size-based eviction (delete
 oldest sessions until under the cap) is left as future work. Time-based

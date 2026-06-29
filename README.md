@@ -32,7 +32,9 @@ Electron wrapper and no frontend build step. The only runtime package is
 - Demo mode for offline development of the UI itself.
 - SQLite-backed session history so recent captures remain available after a
   restart. Each session is tagged with the platform (`ios-simulator`,
-  `android-emulator`, or `android-device`).
+  `android-emulator`, or `android-device`). Captures are pruned by the
+  retention window (default 30 days) on startup and once per day; see
+  [docs/OPERATIONS.md](docs/OPERATIONS.md).
 - Adaptive capture: iOS-only machines record iOS, Android-only machines record
   Android, machines with both available record both, and machines with neither
   fall back to Demo.
@@ -44,7 +46,7 @@ Electron wrapper and no frontend build step. The only runtime package is
 ## Documentation
 
 - [Operations and storage](docs/OPERATIONS.md) - database location, service
-  logs, cleanup notes, and future retention controls.
+  logs, cleanup notes, and retention controls.
 - [Public release checklist](docs/PUBLIC_RELEASE.md) - final checks before
   publishing a clean branch to GitHub.
 - [Roadmap and enhancement ideas](docs/ROADMAP.md) - planned expansion areas
@@ -94,8 +96,8 @@ Use this when setting up a fresh Mac or helping another developer get running:
    [Mobile App Setup](docs/MOBILE_APP_SETUP.md), including the copy-paste
    assistant prompt if you want a coding assistant to wire it.
 7. Verify raw logs first:
-   `xcrun simctl spawn booted log stream ...` for iOS and
-   `adb logcat -v threadtime -T 1 API_CURL:D '*:S'` for Android.
+   `xcrun simctl spawn booted log stream --level debug --predicate 'subsystem == "<your subsystem>" AND category == "api-console"'`
+   for iOS and `adb logcat -v threadtime -T 1 API_CURL:D '*:S'` for Android.
 8. Start the console with `npm start`, or install the LaunchAgent for daily
    background use.
 9. Open `http://localhost:3957`, trigger app requests, and confirm sessions
@@ -133,6 +135,12 @@ The console can live anywhere on disk. It does not inspect, import, or assume
 the path of your iOS or Android app repository. App-side setup happens inside
 the mobile app project, while this console only reads the emitted OSLog or
 Logcat output through `xcrun` / `adb` and your local config.
+
+If you plan to run the console as a macOS LaunchAgent (recommended for daily
+use), either clone the repo to `~/mobile-api-console` so the example plist
+below works as-is, or replace `__YOUR_HOME__/mobile-api-console` in both
+the `ProgramArguments` and `WorkingDirectory` with your actual install
+path.
 
 For a new target machine, the minimum handoff is intentionally small:
 
@@ -202,7 +210,7 @@ Tasks:
    in docs/MOBILE_APP_SETUP.md. If both platform repos are present and the desired
    platform is "both", wire both.
 6. Verify raw logs before relying on the browser:
-   - iOS: xcrun simctl spawn booted log stream --predicate 'subsystem == "<subsystem>" AND category == "api-console"'
+    - iOS: xcrun simctl spawn booted log stream --level debug --predicate 'subsystem == "<subsystem>" AND category == "api-console"'
    - Android: adb logcat -v threadtime -T 1 API_CURL:D '*:S'
 7. Start the console with npm start, or configure the macOS LaunchAgent if this is
    a Mac intended for daily use.
@@ -345,6 +353,12 @@ MOBILE_API_CONSOLE_SOURCE=android npm start
 MOBILE_API_CONSOLE_PORT=3957 npm start
 MOBILE_API_CONSOLE_DEMO=1 npm start
 MOBILE_API_CONSOLE_DB="$HOME/Library/Application Support/mobile-api-console/data.db" npm start
+
+# Retention and live-list cap (defaults shown; see docs/OPERATIONS.md for behavior)
+MOBILE_API_CONSOLE_RETENTION_DAYS=30 npm start
+MOBILE_API_CONSOLE_MAX_DB_MB=512 npm start
+MOBILE_API_CONSOLE_CLEANUP_ON_START=1 npm start
+MOBILE_API_CONSOLE_MAX_EVENTS=400 npm start
 ```
 
 ### Per-developer config file (`~/.mobile-api-console.json`)
@@ -369,9 +383,19 @@ it). This file is gitignored.
     "logTag": "API_CURL",
     "deviceSerial": null,
     "adbPath": null
-  }
+  },
+  "retentionDays": 30,
+  "maxDbMb": 512,
+  "cleanupOnStart": true,
+  "maxEvents": 400
 }
 ```
+
+`retentionDays`, `maxDbMb`, `cleanupOnStart`, and `maxEvents` control how
+long captures are kept and how large the live list can grow. Defaults are
+shown above. See [docs/OPERATIONS.md](docs/OPERATIONS.md) for the exact
+behavior (time-based prune + `VACUUM` on start and once per day, with
+`maxDbMb` as a warning).
 
 Resolution order is **CLI flag > environment variable > config file > public
 default**, so any value can be overridden ad-hoc without editing the file.
@@ -561,6 +585,20 @@ your machine (`echo "$HOME"` and `which node`):
 
 After editing the plist (e.g. adding `ANDROID_HOME` or swapping `WorkingDirectory`),
 run `bin/stop-service` then `bin/start-service` so launchd re-reads it.
+
+#### Verify the service is up
+
+After `bin/start-service`, confirm launchd actually started the console and
+that the HTTP server is reachable:
+
+```sh
+~/mobile-api-console/bin/status-service      # shows pid + port state
+curl http://localhost:3957/api/sources        # JSON list of available + active sources
+```
+
+Then open `http://localhost:3957` in your browser. If the JSON returns
+sources but the browser doesn't load, check the service log at
+`~/Library/Logs/mobile-api-console.err.log`.
 
 #### Using a custom service label
 

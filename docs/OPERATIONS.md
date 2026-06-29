@@ -113,10 +113,28 @@ bin/uninstall-service
 
 ## Current Cleanup Behavior
 
-The app currently keeps captured sessions until the database is removed or a
-future cleanup feature deletes old records. The UI clear action starts a fresh
-session for the current active source, but it is not intended to be long-term
-retention management.
+The app runs a time-based retention pass automatically:
+
+- On startup (when `cleanupOnStart` is enabled, which is the default), and
+  once every 24 hours while the server is running, sessions whose
+  `started_at` (or `ended_at` if set) is older than `retentionDays` are
+  deleted. Events cascade via `ON DELETE CASCADE`.
+- `VACUUM` is run after any prune that removed at least one session, so
+  disk space is returned to the system.
+- The UI **Clear** action starts a fresh session for the current active
+  source, but it is not intended to be long-term retention management.
+
+Settings (CLI flags, env vars, or `~/.mobile-api-console.json`):
+
+| Setting | Default | Purpose |
+|---|---|---|
+| `MOBILE_API_CONSOLE_RETENTION_DAYS` | `30` | Sessions older than this are pruned. |
+| `MOBILE_API_CONSOLE_MAX_DB_MB` | `512` | When the DB exceeds this size, a warning is logged. |
+| `MOBILE_API_CONSOLE_CLEANUP_ON_START` | `1` | Run retention on startup (`0` to skip). |
+
+`MAX_DB_MB` is a warning only in v1 — hard size-based eviction (delete
+oldest sessions until under the cap) is left as future work. Time-based
+prune is the actual enforcement.
 
 For manual cleanup today:
 
@@ -135,30 +153,17 @@ data.db-wal
 
 Remove all three together only when the server is stopped.
 
-## Recommended Retention Direction
+## Future Retention Work
 
-Future cleanup work should prefer conservative defaults:
+The current shape of the feature is intentionally conservative. Items still
+on the wish list:
 
-- Keep recent sessions.
-- Offer deletion of sessions older than 30 days.
-- Show the database size in the UI.
-- Warn when the database is large.
-- Warn when system free space is low.
-- Ask for confirmation before deleting stored sessions.
-- Run SQLite `VACUUM` after large cleanup operations so disk space is actually
-  returned to the system.
-
-Suggested settings for a future implementation:
-
-```text
-MOBILE_API_CONSOLE_RETENTION_DAYS=30
-MOBILE_API_CONSOLE_MAX_DB_MB=512
-MOBILE_API_CONSOLE_MIN_FREE_SPACE_MB=2048
-MOBILE_API_CONSOLE_CLEANUP_ON_START=0
-```
-
-These settings are not implemented yet; they document the intended shape of the
-feature so future work has a clear target.
+- Hard size-based eviction: delete oldest sessions until the DB is under
+  `MAX_DB_MB`.
+- Low free-space warning (`MOBILE_API_CONSOLE_MIN_FREE_SPACE_MB`).
+- In-UI manual cleanup: delete sessions older than a selected age, delete a
+  selected session, delete all failed / successful / demo sessions.
+- Surface database size and oldest session in the UI.
 
 ## Low Disk Space Behavior
 

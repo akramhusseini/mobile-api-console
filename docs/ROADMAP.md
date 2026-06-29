@@ -112,22 +112,27 @@ even when the browser is closed or the UI is looking at another platform.
 
 ## Storage, Retention, and Disk Space
 
-- Add an automatic retention policy, starting with logs older than 30 days.
-- Add a maximum database size option.
-- Add a maximum events-per-session option.
-- Add a manual cleanup action in the UI:
+- [x] Add an automatic retention policy, starting with logs older than 30 days.
+  Time-based prune runs on start and once per day; `VACUUM` follows any prune
+  that removed at least one session. Settings: `MOBILE_API_CONSOLE_RETENTION_DAYS`
+  (default `30`), `MOBILE_API_CONSOLE_CLEANUP_ON_START` (default `1`).
+- [x] Add a maximum database size option (warning only — no hard eviction yet).
+  Setting: `MOBILE_API_CONSOLE_MAX_DB_MB` (default `512`).
+- [x] Cap the in-memory live snapshot list via `MOBILE_API_CONSOLE_MAX_EVENTS`
+  (default `400`).
+- [x] Add tests for retention pruning and session deletion.
+- [ ] Hard size-based eviction: delete oldest sessions until the DB is under
+  `MAX_DB_MB`.
+- [ ] Add a manual cleanup action in the UI:
   - delete sessions older than a selected age
   - delete a selected session
   - delete all failed / successful / demo sessions
-- Add a disk-space monitor:
-  - warn when free space is low
-  - warn when the database grows beyond a configured threshold
+- [ ] Add a disk-space monitor:
+  - warn when free space is low (`MOBILE_API_CONSOLE_MIN_FREE_SPACE_MB`)
   - recommend cleanup before the machine gets critically low on space
-- Add safe cleanup behavior:
-  - vacuum the SQLite database after large deletions
-  - keep recent sessions by default
-  - require confirmation before destructive cleanup
-- Add tests for retention pruning and session deletion.
+- [ ] Safe cleanup behavior:
+  - keep recent sessions by default (already enforced by `RETENTION_DAYS`)
+  - require confirmation before destructive cleanup (applies to UI items above)
 
 ## Search, Filtering, and Navigation
 

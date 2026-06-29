@@ -3,7 +3,7 @@
 const { EventEmitter } = require("node:events");
 
 class EventStore extends EventEmitter {
-  constructor({ storage, sourceKey = "default", sourceKind = "unknown", sourceMetadata = null } = {}) {
+  constructor({ storage, sourceKey = "default", sourceKind = "unknown", sourceMetadata = null, maxEvents = 400 } = {}) {
     super();
     if (!storage) {
       throw new Error("EventStore requires a storage backend");
@@ -11,6 +11,7 @@ class EventStore extends EventEmitter {
     this.storage = storage;
     this.defaultSourceKey = sourceKey;
     this.selectedSourceKey = sourceKey;
+    this.maxEvents = Number.isFinite(maxEvents) && maxEvents > 0 ? maxEvents : 400;
     this.sources = new Map();
     this.pendingSource = {
       sourceKey,
@@ -82,7 +83,9 @@ class EventStore extends EventEmitter {
   snapshot(sourceKey = this.selectedSourceKey) {
     const current = this.currentSession(sourceKey);
     if (!current) return [];
-    return this.eventsForSession(current.id);
+    const events = this.eventsForSession(current.id);
+    if (events.length <= this.maxEvents) return events;
+    return events.slice(0, this.maxEvents);
   }
 
   recentSessions({ limit = 20, sourceKey = null } = {}) {

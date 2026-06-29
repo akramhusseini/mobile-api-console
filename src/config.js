@@ -186,6 +186,9 @@ function buildConfig(argv = process.argv.slice(2), env = process.env, cwd = proc
     noStream,
     publicDir: "public",
     maxEvents: Number.parseInt(env.MOBILE_API_CONSOLE_MAX_EVENTS || file.maxEvents || "400", 10),
+    retentionDays: Number.parseInt(env.MOBILE_API_CONSOLE_RETENTION_DAYS || file.retentionDays || "30", 10),
+    maxDbMb: Number.parseInt(env.MOBILE_API_CONSOLE_MAX_DB_MB || file.maxDbMb || "512", 10),
+    cleanupOnStart: (env.MOBILE_API_CONSOLE_CLEANUP_ON_START || String(file.cleanupOnStart ?? "1")) !== "0",
     databasePath: pick(
       readOption(argv, "db", undefined),
       env.MOBILE_API_CONSOLE_DB,

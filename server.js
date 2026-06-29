@@ -33,7 +33,7 @@ async function main() {
   sourceManager = new SourceManager({ config });
   await sourceManager.detect();
 
-  store = new EventStore({ storage });
+  store = new EventStore({ storage, maxEvents: config.maxEvents });
   hub = new SseHub();
   hub.startHeartbeat();
 

@@ -130,6 +130,35 @@ test("pruneSessionsBefore is idempotent", () => {
   });
 });
 
+test("pruneSessionsBefore honors excludeSessionIds for live sessions", () => {
+  withTempStorage((storage) => {
+    const cutoff = "2026-06-24T12:00:00.000Z";
+    const live = storage.createSession({
+      label: "live-old",
+      startedAt: "2026-04-01T10:00:00.000Z"
+    });
+    const stale = storage.createSession({
+      label: "stale-old",
+      startedAt: "2026-04-02T10:00:00.000Z"
+    });
+    const recent = storage.createSession({
+      label: "recent",
+      startedAt: "2026-06-24T13:00:00.000Z"
+    });
+
+    storage.saveEvent(live.id, { id: "live-1", method: "GET", url: "/a" });
+    storage.saveEvent(stale.id, { id: "stale-1", method: "GET", url: "/b" });
+    storage.saveEvent(recent.id, { id: "recent-1", method: "GET", url: "/c" });
+
+    const removed = storage.pruneSessionsBefore(cutoff, { excludeSessionIds: [live.id] });
+    assert.equal(removed, 1);
+    assert.ok(storage.getSession(live.id), "excluded live session must survive");
+    assert.equal(storage.listEvents({ sessionId: live.id }).length, 1);
+    assert.equal(storage.getSession(stale.id), null, "non-excluded stale session must be pruned");
+    assert.ok(storage.getSession(recent.id), "recent session must survive");
+  });
+});
+
 test("databaseSizeBytes returns a positive number after writes", () => {
   withTempStorage((storage) => {
     const session = storage.createSession({ sourceKind: "test" });

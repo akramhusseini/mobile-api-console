@@ -72,3 +72,22 @@ test("recentSessions returns newest first", () => {
     assert.ok(sessions[1].endedAt);
   });
 });
+
+test("protected live session survives retention and later upsert still works", () => {
+  withStore(({ store, storage }) => {
+    const currentId = store.currentSession().id;
+    // Backdate the live session to simulate a long-running LaunchAgent.
+    storage.db.prepare("UPDATE sessions SET started_at = ? WHERE id = ?")
+      .run("2026-04-01T10:00:00.000Z", currentId);
+
+    const cutoff = "2026-06-24T12:00:00.000Z";
+    const protectedIds = store.currentSessions().map((s) => s.id);
+    const removed = storage.pruneSessionsBefore(cutoff, { excludeSessionIds: protectedIds });
+    assert.equal(removed, 0);
+    assert.ok(store.currentSession(), "current session must still exist");
+
+    // The next upsert would throw "No active session for source" if retention
+    // had silently deleted it.
+    assert.doesNotThrow(() => store.upsert({ id: "after-prune", method: "GET", url: "/x" }));
+  });
+});

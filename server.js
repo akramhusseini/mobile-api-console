@@ -254,7 +254,10 @@ function parseSessionId(value) {
 
 function runRetention() {
   const cutoff = new Date(Date.now() - config.retentionDays * 86400000).toISOString();
-  const removed = storage.pruneSessionsBefore(cutoff);
+  const protectedIds = (store ? store.currentSessions() : [])
+    .map((session) => session.id)
+    .filter((id) => Number.isFinite(id));
+  const removed = storage.pruneSessionsBefore(cutoff, { excludeSessionIds: protectedIds });
   if (removed > 0) storage.vacuum();
   const mb = storage.databaseSizeBytes() / (1024 * 1024);
   if (mb > config.maxDbMb) {

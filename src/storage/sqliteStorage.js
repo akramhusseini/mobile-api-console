@@ -171,11 +171,15 @@ class SqliteStorage {
 
   // ----- Retention -----
 
-  pruneSessionsBefore(cutoffIso) {
+  pruneSessionsBefore(cutoffIso, { excludeSessionIds = [] } = {}) {
     // events cascade via ON DELETE CASCADE
-    const info = this.db.prepare(
-      "DELETE FROM sessions WHERE COALESCE(ended_at, started_at) < ?"
-    ).run(cutoffIso);
+    const params = { cutoff: cutoffIso };
+    let sql = "DELETE FROM sessions WHERE COALESCE(ended_at, started_at) < @cutoff";
+    if (excludeSessionIds.length > 0) {
+      sql += " AND id NOT IN (SELECT value FROM json_each(@excluded))";
+      params.excluded = JSON.stringify(excludeSessionIds);
+    }
+    const info = this.db.prepare(sql).run(params);
     return info.changes;
   }
 

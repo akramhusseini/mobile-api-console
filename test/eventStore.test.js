@@ -91,3 +91,21 @@ test("protected live session survives retention and later upsert still works", (
     assert.doesNotThrow(() => store.upsert({ id: "after-prune", method: "GET", url: "/x" }));
   });
 });
+
+test("snapshot honors maxEvents above the storage default of 500", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "mobile-api-console-test-"));
+  const dbPath = path.join(dir, "data.db");
+  const storage = new SqliteStorage({ databasePath: dbPath }).init();
+  try {
+    const store = new EventStore({ storage, maxEvents: 600 });
+    store.init();
+    for (let i = 0; i < 700; i += 1) {
+      store.upsert({ id: `e-${i}`, method: "GET", url: `/${i}` });
+    }
+    const snapshot = store.snapshot();
+    assert.equal(snapshot.length, 600, "snapshot must reflect the configured cap, not storage's 500 default");
+  } finally {
+    storage.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});

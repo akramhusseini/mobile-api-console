@@ -317,6 +317,7 @@ function connectEvents() {
     const index = state.events.findIndex((item) => item.id === event.id);
     if (index >= 0) state.events[index] = event;
     else state.events.unshift(event);
+    trimEventsToCap();
     bumpSessionCount(event.sessionId);
     sortEvents();
     selectLatestIfNeeded(event.id);
@@ -380,6 +381,7 @@ function applySnapshotPayload(payload) {
   state.sources = payload.sources || null;
   state.config = payload.config || state.config;
   state.selectedId = null;
+  trimEventsToCap();
 }
 
 function selectedSourceKey() {
@@ -417,6 +419,15 @@ function selectLatestIfNeeded(newId) {
 
 function sortEvents() {
   state.events.sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));
+}
+
+function trimEventsToCap() {
+  const cap = state.config && Number.isFinite(state.config.maxEvents) && state.config.maxEvents > 0
+    ? state.config.maxEvents
+    : 400;
+  if (state.events.length > cap) {
+    state.events = state.events.slice(0, cap);
+  }
 }
 
 function render() {

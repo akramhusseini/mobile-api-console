@@ -272,6 +272,7 @@ function runRetention() {
 function publicConfig() {
   return {
     port: config.port,
+    maxEvents: config.maxEvents,
     processName: config.processName,
     subsystem: config.subsystem,
     category: config.category,

@@ -83,9 +83,7 @@ class EventStore extends EventEmitter {
   snapshot(sourceKey = this.selectedSourceKey) {
     const current = this.currentSession(sourceKey);
     if (!current) return [];
-    const events = this.eventsForSession(current.id);
-    if (events.length <= this.maxEvents) return events;
-    return events.slice(0, this.maxEvents);
+    return this.eventsForSession(current.id, { limit: this.maxEvents });
   }
 
   recentSessions({ limit = 20, sourceKey = null } = {}) {
@@ -100,11 +98,11 @@ class EventStore extends EventEmitter {
       .slice(0, limit);
   }
 
-  eventsForSession(sessionId) {
+  eventsForSession(sessionId, { limit = null } = {}) {
     const session = this.storage.getSession(sessionId);
     const sourceKey = this.sourceKeyForSession(session);
     return this.storage
-      .listEvents({ sessionId })
+      .listEvents({ sessionId, limit: limit ?? undefined })
       .map((event) => this.decorateEvent(event, sourceKey));
   }
 

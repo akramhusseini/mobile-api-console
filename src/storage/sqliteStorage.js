@@ -168,6 +168,29 @@ class SqliteStorage {
     const row = this.db.prepare("SELECT COUNT(*) AS n FROM events WHERE session_id = ?").get(sessionId);
     return row ? row.n : 0;
   }
+
+  // ----- Retention -----
+
+  pruneSessionsBefore(cutoffIso) {
+    // events cascade via ON DELETE CASCADE
+    const info = this.db.prepare(
+      "DELETE FROM sessions WHERE COALESCE(ended_at, started_at) < ?"
+    ).run(cutoffIso);
+    return info.changes;
+  }
+
+  vacuum() {
+    this.db.exec("VACUUM");
+  }
+
+  databaseSizeBytes() {
+    let total = 0;
+    for (const suffix of ["", "-wal", "-shm"]) {
+      try { total += fs.statSync(this.databasePath + suffix).size; }
+      catch { /* sidecar may not exist */ }
+    }
+    return total;
+  }
 }
 
 function ensureParentDir(filePath) {

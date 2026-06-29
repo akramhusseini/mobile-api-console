@@ -615,11 +615,12 @@ function renderList() {
     const active = event.id === state.selectedId ? "active" : "";
     const statusClass = statusClassName(event);
     const statusText = event.statusCode || event.state || "pending";
+    const listStatusText = abbreviateListStatus(event, statusText);
     const rawPath = event.path || "(unknown endpoint)";
     return `
       <button class="request-row ${active} ${statusClass}" data-id="${escapeHtml(event.id)}" title="${escapeHtml(rawPath)}">
         <span class="method-badge ${methodClassName(event)}">${escapeHtml(event.method || "GET")}</span>
-        <span class="status-pill ${statusClass}">${escapeHtml(statusText)}</span>
+        <span class="status-pill ${statusClass}">${escapeHtml(listStatusText)}</span>
         <span class="row-main">
           <span class="row-path">${escapeHtml(decodeForDisplay(rawPath))}</span>
           <span class="row-host">${escapeHtml(event.host || "")}</span>
@@ -889,6 +890,20 @@ function statusClassName(event) {
   if (event.state === "error" || Number(event.statusCode) >= 400) return "error";
   if (event.state === "success" || (event.statusCode >= 200 && event.statusCode < 400)) return "success";
   return "pending";
+}
+
+// List-only status abbreviation. The pill column is 36px wide and
+// "pending"/"success"/"error" all overshoot (~59px), pushing into the
+// path column. Numeric codes fit fine, so keep those. The detail-pane
+// status badge still uses the full text.
+function abbreviateListStatus(event, fallback) {
+  if (event.statusCode !== null && event.statusCode !== undefined && event.statusCode !== "") {
+    return String(event.statusCode);
+  }
+  if (event.state === "pending") return "…";
+  if (event.state === "success") return "OK";
+  if (event.state === "error") return "ERR";
+  return fallback;
 }
 
 const METHOD_CLASS_MAP = {

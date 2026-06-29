@@ -95,3 +95,47 @@ test("listSessions returns newest first", () => {
     assert.equal(sessions[1].id, a.id);
   });
 });
+
+test("pruneSessionsBefore removes old sessions and cascades to events", () => {
+  withTempStorage((storage) => {
+    const cutoff = "2026-06-24T12:00:00.000Z";
+    const oldSession = storage.createSession({
+      label: "old",
+      startedAt: "2026-05-01T10:00:00.000Z"
+    });
+    const recentSession = storage.createSession({
+      label: "recent",
+      startedAt: "2026-06-24T13:00:00.000Z"
+    });
+
+    storage.saveEvent(oldSession.id, { id: "old-1", method: "GET", url: "/a" });
+    storage.saveEvent(recentSession.id, { id: "recent-1", method: "GET", url: "/b" });
+
+    const removed = storage.pruneSessionsBefore(cutoff);
+    assert.equal(removed, 1);
+    assert.equal(storage.getSession(oldSession.id), null);
+    assert.equal(storage.listEvents({ sessionId: oldSession.id }).length, 0);
+    assert.ok(storage.getSession(recentSession.id));
+    assert.equal(storage.listEvents({ sessionId: recentSession.id }).length, 1);
+  });
+});
+
+test("pruneSessionsBefore is idempotent", () => {
+  withTempStorage((storage) => {
+    storage.createSession({ label: "old", startedAt: "2026-05-01T10:00:00.000Z" });
+    const cutoff = "2026-06-24T12:00:00.000Z";
+
+    assert.equal(storage.pruneSessionsBefore(cutoff), 1);
+    assert.equal(storage.pruneSessionsBefore(cutoff), 0);
+  });
+});
+
+test("databaseSizeBytes returns a positive number after writes", () => {
+  withTempStorage((storage) => {
+    const session = storage.createSession({ sourceKind: "test" });
+    storage.saveEvent(session.id, { id: "1", method: "GET", url: "/a" });
+    const bytes = storage.databaseSizeBytes();
+    assert.ok(typeof bytes === "number");
+    assert.ok(bytes > 0);
+  });
+});

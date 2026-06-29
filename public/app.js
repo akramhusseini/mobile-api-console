@@ -619,6 +619,7 @@ function renderList() {
     return `
       <button class="request-row ${active} ${statusClass}" data-id="${escapeHtml(event.id)}" title="${escapeHtml(rawPath)}">
         <span class="method-badge ${methodClassName(event)}">${escapeHtml(event.method || "GET")}</span>
+        <span class="status-pill ${statusClass}">${escapeHtml(statusText)}</span>
         <span class="row-main">
           <span class="row-path">${escapeHtml(decodeForDisplay(rawPath))}</span>
           <span class="row-host">${escapeHtml(event.host || "")}</span>

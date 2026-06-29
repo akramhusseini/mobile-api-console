@@ -415,6 +415,7 @@ button:focus-visible {
   min-height: 0;
   background: var(--bg);
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
 }
 
 .empty-state {
@@ -438,6 +439,7 @@ button:focus-visible {
   min-width: 0;
   min-height: 0;
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   grid-template-rows: auto auto minmax(0, 1fr);
 }
 
@@ -446,6 +448,7 @@ button:focus-visible {
 }
 
 .detail-header {
+  min-width: 0;
   padding: 18px 20px;
   border-bottom: 1px solid var(--border);
   display: flex;
@@ -603,6 +606,7 @@ button:focus-visible {
 }
 
 .detail-body {
+  min-width: 0;
   min-height: 0;
   overflow: auto;
   background: var(--bg);
@@ -619,6 +623,8 @@ button:focus-visible {
 
 .curl-wrap {
   position: relative;
+  min-width: 0;
+  max-width: 100%;
 }
 
 .inline-copy-button {

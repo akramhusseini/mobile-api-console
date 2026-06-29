@@ -96,7 +96,12 @@ Use this when setting up a fresh Mac or helping another developer get running:
    [Mobile App Setup](docs/MOBILE_APP_SETUP.md), including the copy-paste
    assistant prompt if you want a coding assistant to wire it.
 7. Verify raw logs first:
-   `xcrun simctl spawn booted log stream --level debug --predicate 'subsystem == "<your subsystem>" AND category == "api-console"'`
+   ```sh
+   xcrun simctl spawn booted log stream \
+     --style compact \
+     --level debug \
+     --predicate 'subsystem == "<your subsystem>" AND category == "api-console"'
+   ```
    for iOS and `adb logcat -v threadtime -T 1 API_CURL:D '*:S'` for Android.
 8. Start the console with `npm start`, or install the LaunchAgent for daily
    background use.
@@ -137,10 +142,10 @@ the mobile app project, while this console only reads the emitted OSLog or
 Logcat output through `xcrun` / `adb` and your local config.
 
 If you plan to run the console as a macOS LaunchAgent (recommended for daily
-use), either clone the repo to `~/mobile-api-console` so the example plist
-below works as-is, or replace `__YOUR_HOME__/mobile-api-console` in both
-the `ProgramArguments` and `WorkingDirectory` with your actual install
-path.
+use), either clone the repo to `~/mobile-api-console` so the path matches
+the repo path assumed by the example plist and service-script examples, or
+replace `__YOUR_HOME__/mobile-api-console` in both the `ProgramArguments`
+and `WorkingDirectory` with your actual install path.
 
 For a new target machine, the minimum handoff is intentionally small:
 
@@ -210,7 +215,10 @@ Tasks:
    in docs/MOBILE_APP_SETUP.md. If both platform repos are present and the desired
    platform is "both", wire both.
 6. Verify raw logs before relying on the browser:
-    - iOS: xcrun simctl spawn booted log stream --level debug --predicate 'subsystem == "<subsystem>" AND category == "api-console"'
+   - iOS: xcrun simctl spawn booted log stream \
+            --style compact \
+            --level debug \
+            --predicate 'subsystem == "<subsystem>" AND category == "api-console"'
    - Android: adb logcat -v threadtime -T 1 API_CURL:D '*:S'
 7. Start the console with npm start, or configure the macOS LaunchAgent if this is
    a Mac intended for daily use.
@@ -397,8 +405,10 @@ shown above. See [docs/OPERATIONS.md](docs/OPERATIONS.md) for the exact
 behavior (time-based prune + `VACUUM` on start and once per day, with
 `maxDbMb` as a warning).
 
-Resolution order is **CLI flag > environment variable > config file > public
-default**, so any value can be overridden ad-hoc without editing the file.
+For settings with CLI flags, resolution order is **CLI flag > environment
+variable > config file > public default**, so any value can be overridden
+ad-hoc without editing the file. Retention/cap settings are configured by
+environment variable or config file.
 
 `defaultSource` / `--source` / `MOBILE_API_CONSOLE_SOURCE` controls the
 initially visible view. With `auto`, iOS is shown first when available, then

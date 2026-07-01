@@ -101,8 +101,25 @@ function booleanFrom(value, fallback) {
 
 function normalizeSource(value) {
   const v = String(value || "").toLowerCase();
-  if (v === "ios" || v === "android" || v === "demo" || v === "auto") return v;
+  if (v === "ios" || v === "android" || v === "demo" || v === "browser" || v === "auto") return v;
   return "auto";
+}
+
+function normalizeBrowserConfig(value = {}) {
+  if (!value || typeof value !== "object") {
+    return { enabled: false, targetUrls: [], requestUrls: [] };
+  }
+  const targetUrls = Array.isArray(value.targetUrls)
+    ? value.targetUrls.filter((entry) => typeof entry === "string" && entry.trim()).map((entry) => entry.trim())
+    : [];
+  const requestUrls = Array.isArray(value.requestUrls)
+    ? value.requestUrls.filter((entry) => typeof entry === "string" && entry.trim()).map((entry) => entry.trim())
+    : [];
+  return {
+    enabled: value.enabled === true,
+    targetUrls,
+    requestUrls
+  };
 }
 
 function buildConfig(argv = process.argv.slice(2), env = process.env, cwd = process.cwd()) {
@@ -110,6 +127,7 @@ function buildConfig(argv = process.argv.slice(2), env = process.env, cwd = proc
   const file = local.data || {};
   const fileIos = file.ios || {};
   const fileAndroid = file.android || {};
+  const fileBrowser = normalizeBrowserConfig(file.browser);
 
   const processName = pick(
     readOption(argv, "process", undefined),
@@ -210,6 +228,7 @@ function buildConfig(argv = process.argv.slice(2), env = process.env, cwd = proc
       deviceSerial: androidDeviceSerial,
       adbPath: androidAdbPath
     },
+    browser: fileBrowser,
 
     defaultSource,
     demo,

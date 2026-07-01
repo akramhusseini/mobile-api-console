@@ -136,6 +136,17 @@ button {
   background: #202936;
 }
 
+.primary-button {
+  border-color: rgba(75, 163, 255, 0.65);
+  background: #1f5fb8;
+  color: #fff;
+}
+
+.primary-button:hover {
+  border-color: #75b9ff;
+  background: #2870d6;
+}
+
 .danger-button {
   color: #ffd8dc;
   background: var(--danger-soft);
@@ -700,6 +711,151 @@ button:focus-visible {
   font-size: 13px;
 }
 
+.capture-meta {
+  margin: 0;
+  padding: 12px 20px;
+  border-bottom: 1px solid var(--border);
+  color: var(--muted);
+  font: 11.5px/1.5 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  background: rgba(75, 163, 255, 0.05);
+}
+
+.truncation-notice {
+  margin: 0;
+  padding: 12px 20px;
+  color: #ffd494;
+  background: rgba(255, 189, 90, 0.08);
+  border-bottom: 1px solid rgba(255, 189, 90, 0.25);
+  font: 12px/1.4 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+}
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(5, 8, 12, 0.68);
+}
+
+.modal-backdrop[hidden] {
+  display: none;
+}
+
+.setup-modal {
+  width: min(720px, 100%);
+  max-height: min(760px, calc(100vh - 48px));
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #11161d;
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.45);
+}
+
+.setup-modal-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 18px 20px;
+  border-bottom: 1px solid var(--border);
+}
+
+.setup-modal h2 {
+  margin: 0 0 6px;
+  font-size: 18px;
+}
+
+.setup-modal p {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+.setup-field {
+  display: grid;
+  gap: 8px;
+  padding: 16px 20px 0;
+  color: var(--text);
+  font-size: 13px;
+}
+
+.setup-field--inline {
+  padding: 0;
+  min-width: 170px;
+}
+
+.setup-field textarea {
+  width: 100%;
+  min-height: 86px;
+  resize: vertical;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--panel);
+  color: var(--text);
+  padding: 10px 11px;
+  outline: none;
+  font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+}
+
+.setup-field textarea:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--focus);
+}
+
+.setup-row {
+  padding: 18px 20px;
+  display: flex;
+  align-items: end;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.setup-status {
+  min-height: 22px;
+  margin: 0 20px 14px;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.setup-status.ok {
+  color: #a9e6c9;
+}
+
+.setup-status.error {
+  color: #ffb5bd;
+}
+
+.setup-checklist {
+  margin: 0;
+  padding: 14px 20px 20px 42px;
+  border-top: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.7;
+}
+
+.setup-checklist li.done {
+  color: #a9e6c9;
+}
+
+.request-row[data-capture-mode="web-request"] {
+  border-left-color: rgba(255, 189, 90, 0.45);
+}
+
+.request-row[data-capture-mode="merged"] {
+  border-left-color: rgba(76, 195, 138, 0.45);
+}
+
+.session-picker {
+  font-variant-numeric: tabular-nums;
+  max-width: 360px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .headers-block {
   padding: 16px 20px;
   border-bottom: 1px solid var(--border);
@@ -899,3 +1055,18 @@ button:focus-visible {
     flex-direction: column;
   }
 }
+
+/* Browser setup modal — simple two-step flow + collapsed advanced */
+.setup-simple { margin: 6px 0 16px; padding-left: 20px; display: grid; gap: 13px; }
+.setup-simple li { line-height: 1.5; }
+.setup-simple code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.9em; }
+.setup-path { display: flex; align-items: center; gap: 8px; margin-top: 7px; }
+.setup-path code {
+  flex: 1; min-width: 0; overflow-x: auto; white-space: nowrap;
+  padding: 6px 9px; border-radius: 6px;
+  background: rgba(255, 255, 255, 0.06); border: 1px solid rgba(255, 255, 255, 0.12);
+}
+.setup-advanced { margin-top: 6px; border-top: 1px solid rgba(255, 255, 255, 0.1); padding-top: 12px; }
+.setup-advanced > summary { cursor: pointer; opacity: 0.72; font-size: 13px; user-select: none; }
+.setup-advanced > summary:hover { opacity: 0.95; }
+.setup-advanced-note { font-size: 12px; opacity: 0.6; margin: 8px 0 14px; line-height: 1.45; }

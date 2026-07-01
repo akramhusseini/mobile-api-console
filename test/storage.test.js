@@ -86,6 +86,67 @@ test("upserts events and bumps session event_count", () => {
   });
 });
 
+// Regression for the browser-capture method/correlation bug. The
+// browserEventParser no longer defaults missing request.method to
+// "GET"; it passes null. The storage layer must keep the prior
+// method on a subsequent upsert, not invent GET and overwrite.
+test("storage COALESCE preserves a real prior method when a later upsert has no method", () => {
+  withTempStorage((storage) => {
+    const session = storage.createSession({ sourceKind: "test" });
+
+    // Request phase: the page-inject correctly saw POST.
+    storage.saveEvent(session.id, {
+      id: "evt-1",
+      method: "POST",
+      url: "https://app.example.com/v1/users",
+      host: "app.example.com",
+      path: "/v1/users",
+      statusCode: null,
+      state: "pending",
+      request: { method: "POST", url: "https://app.example.com/v1/users", body: '{"a":1}' }
+    });
+
+    // Complete phase: the parser couldn't recover the method and
+    // passes null. The COALESCE on the events table must keep POST.
+    storage.saveEvent(session.id, {
+      id: "evt-1",
+      method: null,
+      statusCode: 201,
+      state: "success",
+      response: { statusCode: 201, body: '{"id":1}' }
+    });
+
+    const events = storage.listEvents({ sessionId: session.id });
+    assert.equal(events.length, 1, "must collapse to a single row, not duplicate");
+    assert.equal(events[0].method, "POST", "prior POST must survive a null-method upsert");
+    assert.equal(events[0].statusCode, 201, "statusCode from the complete phase must be applied");
+    assert.equal(events[0].state, "success", "state from the complete phase must be applied");
+    assert.equal(events[0].request.body, '{"a":1}', "request body from the request phase must survive");
+    assert.equal(events[0].response.body, '{"id":1}', "response body from the complete phase must be applied");
+  });
+});
+
+test("storage accepts an explicit method: null on the very first insert (column is null, not 'GET')", () => {
+  // The parser passes null when it cannot determine the method. The
+  // storage must store SQL NULL, not coerce to "GET". Otherwise an
+  // INSERT-then-UPDATE sequence would flip a real prior POST to GET.
+  withTempStorage((storage) => {
+    const session = storage.createSession({ sourceKind: "test" });
+    storage.saveEvent(session.id, {
+      id: "evt-null-method",
+      method: null,
+      url: "https://example.com/x",
+      host: "example.com",
+      path: "/x",
+      state: "pending"
+    });
+    const row = storage.db
+      .prepare("SELECT method FROM events WHERE client_event_id = ?")
+      .get("evt-null-method");
+    assert.equal(row.method, null, "first insert with method:null must persist as SQL NULL, not 'GET'");
+  });
+});
+
 test("listSessions returns newest first", () => {
   withTempStorage((storage) => {
     const a = storage.createSession({ label: "a", startedAt: "2026-06-24T10:00:00.000Z" });
@@ -166,5 +227,29 @@ test("databaseSizeBytes returns a positive number after writes", () => {
     const bytes = storage.databaseSizeBytes();
     assert.ok(typeof bytes === "number");
     assert.ok(bytes > 0);
+  });
+});
+
+test("saveEvent round-trips the optional meta blob", () => {
+  withTempStorage((storage) => {
+    const session = storage.createSession({ sourceKind: "test" });
+    const meta = {
+      source: "browser",
+      captureMode: "merged",
+      browserSession: { origin: "https://app.example.com", profileId: "p1", context: "regular" },
+      tabId: 7,
+      pageUrl: "https://app.example.com/dashboard",
+      durationMs: 42
+    };
+    storage.saveEvent(session.id, {
+      id: "1",
+      method: "POST",
+      url: "https://app.example.com/api",
+      statusCode: 200,
+      state: "success",
+      meta
+    });
+    const fetched = storage.getEvent(session.id, "1");
+    assert.deepEqual(fetched.meta, meta);
   });
 });

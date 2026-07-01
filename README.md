@@ -14,9 +14,11 @@ Electron wrapper and no frontend build step. The only runtime package is
 ## Features
 
 - Live stream from available sources: the booted iOS Simulator, attached
-  Android emulator/device, or demo mode. Sources are auto-detected on startup;
-  when both iOS and Android are available, both record continuously and the
-  header dropdown selects which platform history to view.
+  Android emulator/device, a Chromium-family browser via the bundled
+  extension, or demo mode. Sources are auto-detected on startup; when
+  multiple are available, all record continuously and the header dropdown
+  selects which platform history to view. Browser capture surfaces
+  multiple live sessions per (origin, browser profile, regular/incognito).
 - Per-call view: status, method, and full URL are pinned in the detail
   header, with tabs for Preview (interactive JSON tree with type-aware
   colors, collapsible `{}` and `[]` nodes, and bracket-pair highlight),
@@ -37,7 +39,8 @@ Electron wrapper and no frontend build step. The only runtime package is
   [docs/OPERATIONS.md](docs/OPERATIONS.md).
 - Adaptive capture: iOS-only machines record iOS, Android-only machines record
   Android, machines with both available record both, and machines with neither
-  fall back to Demo.
+  fall back to Demo. Browser capture is opt-in via the `browser` config block
+  and ships as an unpacked extension in `extension/`.
 - Optional macOS LaunchAgent so the console runs in the background and is
   always available at `http://localhost:3957`.
 - Per-developer config via `~/.mobile-api-console.json` so real bundle ids,
@@ -47,7 +50,11 @@ Electron wrapper and no frontend build step. The only runtime package is
 
 - [Operations and storage](docs/OPERATIONS.md) - database location, service
   logs, cleanup notes, and retention controls.
-- [Public release checklist](docs/PUBLIC_RELEASE.md) - final checks before
+- [Browser setup (Chromium extension)](docs/BROWSER_SETUP.md) - install the
+  bundled MV3 extension, click **Capture this site** from your own signed-in
+  browser, and stream `fetch` / `XMLHttpRequest` traffic into the console.
+  `npm run browser:dev` remains available as a throwaway-profile alternative.
+- [Public release checklist](docs/PUBLIC_RELEASE_CHECKLIST.md) - final checks before
   publishing a clean branch to GitHub.
 - [Roadmap and enhancement ideas](docs/ROADMAP.md) - planned expansion areas
   such as always-on multi-source capture, richer JSON viewing, bracket
@@ -72,12 +79,14 @@ available as a fallback.
 ### Platform support status
 
 - **macOS:** primary supported and tested platform. Supports iOS Simulator,
-  Android emulator/device, Demo mode, and the LaunchAgent background service.
-- **Windows / Ubuntu:** Android and Demo mode should work when Node.js and
-  `adb` are available. iOS Simulator logging is not available because Apple's
-  `xcrun simctl` tooling only exists on macOS. The service scripts in `bin/`
-  are macOS LaunchAgent scripts; on Windows / Ubuntu, run foreground for now or
-  adapt the server command into your own service manager.
+  Android emulator/device, Chromium browser capture (Chrome, Brave, Edge, Arc,
+  Opera), Demo mode, and the LaunchAgent background service.
+- **Windows / Ubuntu:** Android, Chromium browser capture, and Demo mode
+  should work when Node.js and `adb` are available. iOS Simulator logging
+  is not available because Apple's `xcrun simctl` tooling only exists on
+  macOS. The service scripts in `bin/` are macOS LaunchAgent scripts; on
+  Windows / Ubuntu, run foreground for now or adapt the server command
+  into your own service manager.
 
 ### New macOS machine checklist
 
@@ -91,11 +100,14 @@ Use this when setting up a fresh Mac or helping another developer get running:
 4. Clone this console repo anywhere on disk and run `npm install`.
 5. Add `~/.mobile-api-console.json` with the real app identifiers:
    iOS subsystem/category, Android package/tag, and optionally the Android
-   device serial or `adb` path.
+   device serial or `adb` path. For browser capture, open the console and use
+   **Set up Browser** — see [Browser setup](docs/BROWSER_SETUP.md).
 6. Add the debug-only emitter to the mobile app repo. See
    [Mobile App Setup](docs/MOBILE_APP_SETUP.md), including the copy-paste
    assistant prompt if you want a coding assistant to wire it.
-7. Verify raw logs first:
+7. (Browser only) Load the unpacked extension from `extension/`, then click
+   its toolbar icon on the app page and choose **Capture this site**.
+8. Verify raw logs first:
    ```sh
    xcrun simctl spawn booted log stream \
      --style compact \
@@ -103,10 +115,10 @@ Use this when setting up a fresh Mac or helping another developer get running:
      --predicate 'subsystem == "<your subsystem>" AND category == "api-console"'
    ```
    for iOS and `adb logcat -v threadtime -T 1 API_CURL:D '*:S'` for Android.
-8. Start the console with `npm start`, or install the LaunchAgent for daily
+9. Start the console with `npm start`, or install the LaunchAgent for daily
    background use.
-9. Open `http://localhost:3957`, trigger app requests, and confirm sessions
-   populate for the available platform(s).
+10. Open `http://localhost:3957`, trigger app requests, and confirm sessions
+    populate for the available platform(s).
 
 ### Install Node.js on macOS
 
@@ -167,6 +179,77 @@ By default the database lives at:
 ```
 
 Override with `--db <path>` or `MOBILE_API_CONSOLE_DB=<path>`. The parent directory is created on first run.
+
+## Browser capture — one-click setup
+
+Recommended path:
+
+1. Open `http://localhost:3957` and click **Set up Browser**. This enables the
+   Browser source in the console and shows the `extension/` folder path.
+2. In Brave or Chrome, open `brave://extensions` or `chrome://extensions`,
+   enable **Developer mode**, click **Load unpacked**, and select that
+   `extension/` folder.
+3. Open the web app you want to inspect, click the Mobile API Console toolbar
+   icon, then click **Capture this site**. The tab reloads and capture starts
+   from the real page URL, so there is no host pattern to type.
+4. Back in the console, select **Browser** from the source dropdown.
+
+If the page calls a cross-origin API, request and response bodies are still
+captured by the page-world patch. If you also want response headers for that
+API host, open the extension popup again after browsing and click **Add
+headers** next to the observed API origin.
+
+### Alternative — one-command clean profile
+
+A small helper writes your `~/.mobile-api-console.json`, starts the console
+with `Browser` selected, and launches Brave (or Chrome / Edge) with the
+unpacked extension from `./extension` already loaded into a throwaway
+profile. Use this only when you want an isolated browser; that profile has no
+existing login session, so apps requiring sign-in may show a blank page.
+From the repo root:
+
+```sh
+npm run browser:dev -- --target 'http://localhost:3000/*'
+```
+
+The console prints a plan (config path, extension dir, target / request
+URL patterns, browser detected) and a four-step reminder for the bits the
+helper cannot do for you — opening the extension's Options page, clicking
+Save, and clicking **Allow** on the native host-permission prompt. That
+last click is an OS-level gesture; nothing inside the browser protocol
+can simulate it.
+
+```sh
+# With cross-origin API hosts for response-header capture:
+npm run browser:dev -- --target 'http://localhost:3000/*' \
+                      --request 'http://localhost:3000/api/*'
+
+# On a non-default port:
+npm run browser:dev -- --target 'http://localhost:3000/*' --port 4000
+
+# Force Chrome instead of the auto-detected Brave:
+npm run browser:dev -- --target 'http://localhost:3000/*' --browser chrome
+
+# Console already running on the same port (e.g. LaunchAgent) — skip the spawn:
+npm run browser:dev -- --target 'http://localhost:3000/*' --no-start
+
+# Preview the plan without writing or spawning anything:
+npm run browser:dev -- --target 'http://localhost:3000/*' --dry-run
+```
+
+`--target` is required the first time you run this (the helper refuses to
+write a `browser.targetUrls: []` config), but subsequent runs can omit it
+and the existing `targetUrls` are reused. `--request` is repeatable.
+Unrelated keys in `~/.mobile-api-console.json` (`processName`, `android`,
+`retentionDays`, etc.) are preserved — the helper only touches the `browser`
+block and only adds `defaultSource: "browser"` when it was unset.
+
+Flags, dry-run output, and the merge logic are all unit-tested in
+`test/browserDev.test.js`. macOS is the primary target (Brave → Chrome →
+Edge); Linux/Windows paths are wired but the helper is best-effort until
+someone validates them end-to-end. For the fully manual install path (load
+unpacked by hand, edit the config file by hand), see
+[docs/BROWSER_SETUP.md](docs/BROWSER_SETUP.md#manual-install-load-unpacked-fallback).
 
 ## Configure the mobile app to feed the console
 
@@ -234,7 +317,9 @@ Important constraints:
 
 ### TL;DR — the wire format
 
-iOS emits four block markers under your chosen `subsystem` + `category`:
+The console accepts two wire formats:
+
+**iOS** emits four block markers under your chosen `subsystem` + `category`:
 
 ```text
 ===== REQUEST =====
@@ -263,6 +348,19 @@ Long messages (cURL or body over 4 KB) are chunked at 4000-char boundaries by
 the app and continuation chunks are prefixed with literal `...` so the parser
 glues them back without a fake newline. The console handles that for you.
 
+**Browser** events are sent as JSON POSTs to `/api/browser-event` from the
+bundled MV3 extension's background service worker. The full wire format and
+session model are documented in [Browser setup](docs/BROWSER_SETUP.md);
+short version:
+
+- One selectable `Browser` source with multiple live sessions under it,
+  keyed by `origin` + extension `profileId` + `context` (`regular` /
+  `incognito`).
+- Two-phase upsert keyed by `eventId` — `phase: "request"` when the call
+  starts, `phase: "complete"` (or `error`) on finish.
+- Body fields carry `bodyAvailable` / `bodyTruncated` / `bodyUnavailableReason`
+  so the UI can honestly show why a body is missing.
+
 ### Triggering a clear from the app
 
 Emit any of these markers (under the iOS subsystem/category, or under the
@@ -273,6 +371,11 @@ API_CONSOLE_CLEAR
 ===== CONSOLE CLEARED =====
 CONSOLE_CLEARED
 ```
+
+The browser extension sends a clear marker on the same `/api/browser-event`
+endpoint with `{ "clear": true, "browserSession": { origin, profileId, context } }`.
+Only the targeted browser session is wiped; other browser sessions and other
+platforms are untouched.
 
 ## Run
 
@@ -334,6 +437,7 @@ npm start -- --adb-path /opt/homebrew/share/android-sdk/platform-tools/adb
 # Initial view selection
 npm start -- --source ios
 npm start -- --source android
+npm start -- --source browser
 npm start -- --source demo
 
 # General
@@ -371,9 +475,9 @@ MOBILE_API_CONSOLE_MAX_EVENTS=400 npm start
 
 ### Per-developer config file (`~/.mobile-api-console.json`)
 
-For real bundle ids, OSLog subsystem/category values, Logcat tags, and device
-serials — anything you don't want to type on every launch and definitely don't
-want committed to the repo —
+For real bundle ids, OSLog subsystem/category values, Logcat tags, browser
+target page URLs, and device serials — anything you don't want to type on
+every launch and definitely don't want committed to the repo —
 drop a JSON file at `~/.mobile-api-console.json` (also picked up from the
 current working directory, and from `$MOBILE_API_CONSOLE_CONFIG` if you set
 it). This file is gitignored.
@@ -391,6 +495,11 @@ it). This file is gitignored.
     "logTag": "API_CURL",
     "deviceSerial": null,
     "adbPath": null
+  },
+  "browser": {
+    "enabled": true,
+    "targetUrls": ["https://app.mycompany.com/*"],
+    "requestUrls": ["https://api.mycompany.com/*"]
   },
   "retentionDays": 30,
   "maxDbMb": 512,
@@ -653,17 +762,23 @@ curl -X POST -H 'Content-Type: application/json' \
 
 ```text
 mobile-api-console/
-├── docs/                   # roadmap, operations, and future expansion notes
+├── docs/                   # roadmap, operations, browser setup, future expansion
 ├── bin/                    # service control scripts + node entry point
 ├── public/                 # static UI (HTML / CSS / JS)
+├── extension/              # MV3 browser extension (unpacked, optional)
+│   ├── manifest.json
+│   ├── background.js       # service worker: only network sender
+│   ├── content.js          # isolated world bridge
+│   ├── page-inject.js      # page-world fetch + XHR patch
+│   └── options.{html,css,js}
 ├── src/
 │   ├── config.js           # CLI / env / ~/.mobile-api-console.json resolution
 │   ├── platform.js         # xcrun + adb detection
-│   ├── sourceManager.js    # owns live source recorders + parsers
+│   ├── sourceManager.js    # owns live source recorders + parsers + browser ingest
 │   ├── eventStore.js       # source/session-scoped event store with SSE notifications
 │   ├── sseHub.js           # Server-Sent Events hub
-│   ├── logSource/          # SimulatorLogStream, AdbLogcatStream, DemoLogSource
-│   └── parsers/            # mobileNetworkParser (iOS) + androidApiCurlParser
+│   ├── logSource/          # SimulatorLogStream, AdbLogcatStream, BrowserPushSource, DemoLogSource
+│   └── parsers/            # mobileNetworkParser (iOS), androidApiCurlParser, browserEventParser
 ├── test/                   # node --test
 ├── server.js               # HTTP server + wiring
 └── package.json

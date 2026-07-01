@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#4ba3ff"/>
+      <stop offset="1" stop-color="#2563eb"/>
+    </linearGradient>
+  </defs>
+  <rect x="0" y="0" width="128" height="128" rx="28" fill="url(#g)"/>
+  <g fill="#ffffff" font-family="ui-monospace, monospace" font-size="40" font-weight="700" text-anchor="middle">
+    <text x="64" y="58">API</text>
+    <text x="64" y="100" font-size="22" opacity="0.85">console</text>
+  </g>
+</svg>

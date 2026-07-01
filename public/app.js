@@ -18,6 +18,7 @@ const els = {
   toggleListButton: document.getElementById("toggleListButton"),
   sourceDot: document.getElementById("sourceDot"),
   sourceText: document.getElementById("sourceText"),
+  setupBrowserButton: document.getElementById("setupBrowserButton"),
   sourcePicker: document.getElementById("sourcePicker"),
   emptyStateHint: document.getElementById("emptyStateHint"),
   restartButton: document.getElementById("restartButton"),
@@ -40,8 +41,25 @@ const els = {
   detailUrl: document.getElementById("detailUrl"),
   detailSize: document.getElementById("detailSize"),
   detailBody: document.getElementById("detailBody"),
-  copyButton: document.getElementById("copyButton")
+  copyButton: document.getElementById("copyButton"),
+  browserSetupModal: document.getElementById("browserSetupModal"),
+  browserSetupClose: document.getElementById("browserSetupClose"),
+  browserSetupTargets: document.getElementById("browserSetupTargets"),
+  browserSetupRequests: document.getElementById("browserSetupRequests"),
+  browserSetupChoice: document.getElementById("browserSetupChoice"),
+  browserSetupLaunch: document.getElementById("browserSetupLaunch"),
+  browserSetupCheck: document.getElementById("browserSetupCheck"),
+  browserSetupStatus: document.getElementById("browserSetupStatus"),
+  browserSetupExtPath: document.getElementById("browserSetupExtPath"),
+  browserSetupCopyPath: document.getElementById("browserSetupCopyPath"),
+  setupStepConfig: document.getElementById("setupStepConfig"),
+  setupStepLaunch: document.getElementById("setupStepLaunch"),
+  setupStepAllow: document.getElementById("setupStepAllow"),
+  setupStepVerify: document.getElementById("setupStepVerify")
 };
+
+const browserSetupRequested = new URLSearchParams(window.location.search).get("browserSetup") === "1";
+let browserSetupAutoOpened = false;
 
 loadLayoutState();
 bindLayout();
@@ -54,7 +72,13 @@ function bindUi() {
   els.methodFilter.addEventListener("change", render);
 
   els.clearButton.addEventListener("click", async () => {
-    await fetch("/api/clear", { method: "POST" });
+    const body = {};
+    if (state.activeSessionId) body.sessionId = state.activeSessionId;
+    await fetch("/api/clear", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body)
+    });
   });
 
   els.restartButton.addEventListener("click", async () => {
@@ -84,6 +108,10 @@ function bindUi() {
     });
   }
 
+  if (els.clearButton) {
+    els.clearButton.title = "Clear visible API calls (browser clears only the current session)";
+  }
+
   els.sessionPicker.addEventListener("change", async () => {
     const id = Number.parseInt(els.sessionPicker.value, 10);
     if (!Number.isFinite(id)) return;
@@ -106,7 +134,209 @@ function bindUi() {
     await flashCopy(els.copyButton, text);
   });
 
+  bindBrowserSetup();
   bindCopyUrlPopup();
+}
+
+function bindBrowserSetup() {
+  if (!els.setupBrowserButton || !els.browserSetupModal) return;
+
+  els.setupBrowserButton.addEventListener("click", openBrowserSetup);
+  els.browserSetupClose.addEventListener("click", closeBrowserSetup);
+  els.browserSetupModal.addEventListener("mousedown", (event) => {
+    if (event.target === els.browserSetupModal) closeBrowserSetup();
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && !els.browserSetupModal.hidden) closeBrowserSetup();
+  });
+
+  els.browserSetupLaunch.addEventListener("click", launchBrowserSetup);
+  els.browserSetupCheck.addEventListener("click", checkBrowserSetup);
+
+  if (els.browserSetupCopyPath) {
+    els.browserSetupCopyPath.addEventListener("click", async () => {
+      const text = els.browserSetupExtPath ? els.browserSetupExtPath.textContent : "";
+      try {
+        await navigator.clipboard.writeText(text);
+        els.browserSetupCopyPath.textContent = "Copied";
+        setTimeout(() => { els.browserSetupCopyPath.textContent = "Copy"; }, 1200);
+      } catch { /* clipboard unavailable */ }
+    });
+  }
+}
+
+function openBrowserSetup() {
+  fillBrowserSetupFields();
+  setSetupStatus("Enabling Browser source in this console...", "");
+  markSetupStep("config", browserSourceAvailable());
+  markSetupStep("launch", false);
+  markSetupStep("allow", false);
+  markSetupStep("verify", browserSourceAvailable() && hasBrowserPostWithBodies());
+  els.browserSetupModal.hidden = false;
+  fillBrowserSetupPath();
+  enableBrowserSetup();
+}
+
+function closeBrowserSetup() {
+  els.browserSetupModal.hidden = true;
+}
+
+async function fillBrowserSetupPath() {
+  if (!els.browserSetupExtPath) return;
+  try {
+    const res = await fetch("/api/browser-setup/defaults");
+    const data = await res.json();
+    if (data && data.extensionDir) els.browserSetupExtPath.textContent = data.extensionDir;
+  } catch { /* keep the placeholder path */ }
+}
+
+function fillBrowserSetupFields() {
+  const browser = state.config?.browser || {};
+  const targets = Array.isArray(browser.targetUrls) && browser.targetUrls.length
+    ? browser.targetUrls
+    : ["http://127.0.0.1:3998/*"];
+  const requests = Array.isArray(browser.requestUrls) && browser.requestUrls.length
+    ? browser.requestUrls
+    : ["http://127.0.0.1:3998/api/*"];
+  els.browserSetupTargets.value = targets.join("\n");
+  els.browserSetupRequests.value = requests.join("\n");
+}
+
+async function enableBrowserSetup() {
+  setSetupBusy(true);
+  try {
+    const response = await fetch("/api/browser-setup/enable", { method: "POST" });
+    const payload = await response.json();
+    if (!response.ok || !payload.ok) {
+      setSetupStatus(payload.message || "Could not enable Browser source.", "error");
+      markSetupStep("config", false);
+      return;
+    }
+
+    if (payload.sources) state.sources = payload.sources;
+    if (payload.config) state.config = payload.config;
+    render();
+    markSetupStep("config", true);
+    setSetupStatus("Browser source is enabled. Load the extension, then click “Capture this site” from your app tab.", "ok");
+  } catch (error) {
+    setSetupStatus(error.message || "Could not enable Browser source.", "error");
+    markSetupStep("config", false);
+  } finally {
+    setSetupBusy(false);
+  }
+}
+
+async function launchBrowserSetup() {
+  const targetUrls = setupLines(els.browserSetupTargets.value);
+  if (targetUrls.length === 0) {
+    setSetupStatus("Add at least one target page URL pattern.", "error");
+    return;
+  }
+
+  setSetupBusy(true);
+  setSetupStatus("Preparing Browser capture...", "");
+  try {
+    const response = await fetch("/api/browser-setup/launch", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        targetUrls,
+        requestUrls: setupLines(els.browserSetupRequests.value),
+        browser: els.browserSetupChoice.value
+      })
+    });
+    const payload = await response.json();
+    if (!response.ok || !payload.ok) {
+      const message = payload.message || (payload.messages || []).join(" ") || "Browser setup failed.";
+      setSetupStatus(message, "error");
+      return;
+    }
+
+    if (payload.sources) state.sources = payload.sources;
+    state.config = {
+      ...(state.config || {}),
+      browser: {
+        enabled: true,
+        targetUrls: payload.targetUrls || targetUrls,
+        requestUrls: payload.requestUrls || setupLines(els.browserSetupRequests.value)
+      }
+    };
+    render();
+    markSetupStep("config", true);
+    markSetupStep("launch", true);
+    setSetupStatus("Browser launched. In the extension tab, click Save, then Allow.", "ok");
+  } catch (error) {
+    setSetupStatus(error.message || "Browser setup failed.", "error");
+  } finally {
+    setSetupBusy(false);
+  }
+}
+
+async function checkBrowserSetup() {
+  setSetupBusy(true);
+  setSetupStatus("Checking Browser source...", "");
+  try {
+    const response = await fetch("/api/config");
+    const payload = await response.json();
+    state.source = payload.source || state.source;
+    state.sources = payload.sources || state.sources;
+    state.config = payload.config || state.config;
+    render();
+
+    const available = browserSourceAvailable();
+    markSetupStep("config", available);
+    markSetupStep("verify", available && hasBrowserPostWithBodies());
+    setSetupStatus(
+      available
+        ? "Browser source is available. Trigger a POST request and confirm one row with bodies."
+        : "Browser source is not available yet.",
+      available ? "ok" : "error"
+    );
+  } catch (error) {
+    setSetupStatus(error.message || "Could not check Browser source.", "error");
+  } finally {
+    setSetupBusy(false);
+  }
+}
+
+function setupLines(value) {
+  return String(value || "")
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+}
+
+function setSetupBusy(busy) {
+  els.browserSetupLaunch.disabled = busy;
+  els.browserSetupCheck.disabled = busy;
+}
+
+function setSetupStatus(text, kind) {
+  els.browserSetupStatus.textContent = text || "";
+  els.browserSetupStatus.className = `setup-status${kind ? ` ${kind}` : ""}`;
+}
+
+function markSetupStep(step, done) {
+  const map = {
+    config: els.setupStepConfig,
+    launch: els.setupStepLaunch,
+    allow: els.setupStepAllow,
+    verify: els.setupStepVerify
+  };
+  if (map[step]) map[step].classList.toggle("done", Boolean(done));
+}
+
+function browserSourceAvailable() {
+  return Boolean((state.sources?.selectable || []).find((entry) => entry.kind === "browser"));
+}
+
+function hasBrowserPostWithBodies() {
+  return state.events.some((event) => {
+    if (event?.meta?.source !== "browser") return false;
+    if (event.method !== "POST") return false;
+    if (!event.request?.body || !event.response?.body) return false;
+    return event.meta.captureMode === "page-script" || event.meta.captureMode === "merged";
+  });
 }
 
 function bindCopyUrlPopup() {
@@ -307,6 +537,10 @@ function connectEvents() {
     applySnapshotPayload(payload);
     selectLatestIfNeeded();
     render();
+    if (browserSetupRequested && !browserSetupAutoOpened) {
+      browserSetupAutoOpened = true;
+      openBrowserSetup();
+    }
   });
 
   eventSource.addEventListener("event-upsert", (message) => {
@@ -494,6 +728,13 @@ function sourceOptions() {
         opts: { deviceSerial: null },
         label: entry.label || "Android"
       });
+    } else if (entry.kind === "browser") {
+      options.push({
+        sourceKey: "browser",
+        kind: "browser",
+        opts: {},
+        label: entry.label || "Browser"
+      });
     } else {
       options.push({
         sourceKey: entry.kind,
@@ -523,6 +764,8 @@ function renderEmptyHint() {
     els.emptyStateHint.textContent = "Run the Android app on the attached device or emulator and trigger an API request.";
   } else if (kind === "demo") {
     els.emptyStateHint.textContent = "Demo source is streaming synthetic requests every couple of seconds.";
+  } else if (kind === "browser") {
+    els.emptyStateHint.textContent = "Open a page in a tab whose URL matches the extension's target list, then trigger a fetch or XHR.";
   } else {
     els.emptyStateHint.textContent = "Run the iOS app in a booted simulator and trigger an API request.";
   }
@@ -568,7 +811,18 @@ function formatSessionLabel(session) {
     })
     : "";
   const count = session.eventCount ?? 0;
-  return `${live}#${session.id} · ${count} call${count === 1 ? "" : "s"} · ${started}`;
+  const originLabel = browserSessionOriginLabel(session);
+  const base = `${live}#${session.id} · ${count} call${count === 1 ? "" : "s"} · ${started}`;
+  return originLabel ? `${originLabel} · ${base}` : base;
+}
+
+function browserSessionOriginLabel(session) {
+  if (!session || session.sourceKey !== "browser") return "";
+  const meta = session.sourceMetadata || {};
+  const browser = meta.browserSession;
+  if (!browser || !browser.origin) return "";
+  const context = browser.context ? ` (${browser.context})` : "";
+  return `${browser.origin}${context}`;
 }
 
 function renderSource() {
@@ -617,8 +871,9 @@ function renderList() {
     const statusText = event.statusCode || event.state || "pending";
     const listStatusText = abbreviateListStatus(event, statusText);
     const rawPath = event.path || "(unknown endpoint)";
+    const captureModeAttr = event?.meta?.captureMode ? ` data-capture-mode="${escapeHtml(event.meta.captureMode)}"` : "";
     return `
-      <button class="request-row ${active} ${statusClass}" data-id="${escapeHtml(event.id)}" title="${escapeHtml(rawPath)}">
+      <button class="request-row ${active} ${statusClass}" data-id="${escapeHtml(event.id)}" title="${escapeHtml(rawPath)}"${captureModeAttr}>
         <span class="method-badge ${methodClassName(event)}">${escapeHtml(event.method || "GET")}</span>
         <span class="status-pill ${statusClass}">${escapeHtml(listStatusText)}</span>
         <span class="row-main">
@@ -646,7 +901,7 @@ function renderDetail() {
 
   if (!event) return;
 
-  els.detailHost.textContent = event.host || "";
+  els.detailHost.textContent = browserHostLine(event) || event.host || "";
   const rawTitle = event.path || event.url || "(unknown endpoint)";
   els.detailTitle.textContent = decodeForDisplay(rawTitle);
   els.detailTitle.title = rawTitle;
@@ -673,13 +928,30 @@ function renderDetail() {
   renderTabContent(event);
 }
 
+function browserHostLine(event) {
+  if (!event?.meta || event.meta.source !== "browser") return "";
+  const bits = [];
+  const browser = event.meta.browserSession;
+  if (browser?.origin) {
+    const ctx = browser.context ? ` (${browser.context})` : "";
+    bits.push(`${browser.origin}${ctx}`);
+  }
+  if (Number.isInteger(event.meta.tabId)) bits.push(`tab ${event.meta.tabId}`);
+  return bits.join(" · ");
+}
+
 function renderTabContent(event) {
   const container = els.detailBody;
   container.replaceChildren();
+  const meta = browserCaptureMeta(event);
+  if (meta) container.appendChild(meta);
 
   const tab = state.activeTab;
   if (tab === "preview") {
-    renderBodyTab(container, event.response?.body, "No response captured yet.", event.response);
+    renderBodyTab(container, event.response?.body, "No response captured yet.", event.response, {
+      unavailableReason: event.response?.bodyUnavailableReason,
+      truncated: event.response?.bodyTruncated
+    });
     return;
   }
   if (tab === "headers") {
@@ -687,15 +959,21 @@ function renderTabContent(event) {
     return;
   }
   if (tab === "payload") {
-    renderBodyTab(container, event.request?.body, "No request body captured.", event.request);
+    renderBodyTab(container, event.request?.body, "No request body captured.", event.request, {
+      unavailableReason: event.request?.bodyUnavailableReason,
+      truncated: event.request?.bodyTruncated
+    });
     return;
   }
   if (tab === "response") {
-    renderTextTab(container, event.response?.body || "", "No response captured yet.", event.response);
+    renderTextTab(container, event.response?.body || "", "No response captured yet.", event.response, {
+      unavailableReason: event.response?.bodyUnavailableReason,
+      truncated: event.response?.bodyTruncated
+    });
     return;
   }
   if (tab === "curl") {
-    renderCurlTab(container, event.curl || "");
+    renderCurlTab(container, event.curl || "", event);
     return;
   }
   if (tab === "errors") {
@@ -709,11 +987,13 @@ function renderTabContent(event) {
   }
 }
 
-function renderCurlTab(container, curl) {
+function renderCurlTab(container, curl, event) {
   if (!curl) {
     const empty = document.createElement("div");
     empty.className = "tab-empty";
-    empty.textContent = "No cURL command captured yet.";
+    empty.textContent = event?.meta?.source === "browser"
+      ? "Browser events do not produce a cURL command (the page makes the call, not the console)."
+      : "No cURL command captured yet.";
     container.appendChild(empty);
     return;
   }
@@ -740,39 +1020,99 @@ function renderCurlTab(container, curl) {
   container.appendChild(wrap);
 }
 
-function renderTextTab(container, text, emptyMessage, hasContent) {
+function browserCaptureMeta(event) {
+  if (!event?.meta || event.meta.source !== "browser") return null;
+  const bits = [];
+  if (event.meta.captureMode) {
+    const mode = String(event.meta.captureMode);
+    const labels = {
+      "page-script": "Page script",
+      "web-request": "Web request (no body)",
+      "merged": "Merged (page + webRequest)"
+    };
+    bits.push(`Capture: ${labels[mode] || mode}`);
+  }
+  if (event.meta.browserSession?.origin) {
+    const ctx = event.meta.browserSession.context;
+    bits.push(`Origin: ${event.meta.browserSession.origin}${ctx ? ` (${ctx})` : ""}`);
+  }
+  if (Number.isInteger(event.meta.tabId)) {
+    bits.push(`Tab: ${event.meta.tabId}`);
+  }
+  if (Number.isFinite(event.meta.durationMs)) {
+    bits.push(`Duration: ${event.meta.durationMs}ms`);
+  }
+  if (bits.length === 0) return null;
+  const div = document.createElement("div");
+  div.className = "capture-meta";
+  div.textContent = bits.join(" · ");
+  return div;
+}
+
+function renderTextTab(container, text, emptyMessage, hasContent, bodyInfo = null) {
   if (!hasContent || !text || text === "(empty)") {
+    if (hasContent && bodyInfo && !bodyInfo.unavailableReason) {
+      // body present but empty
+    } else if (bodyInfo && bodyInfo.unavailableReason) {
+      const note = document.createElement("div");
+      note.className = "tab-empty";
+      note.textContent = `Body not captured (${bodyInfo.unavailableReason}).`;
+      container.appendChild(note);
+      return;
+    }
     const empty = document.createElement("div");
     empty.className = "tab-empty";
     empty.textContent = emptyMessage;
     container.appendChild(empty);
     return;
   }
+  container.appendChild(buildTruncationNotice(bodyInfo));
   const pre = document.createElement("pre");
   pre.className = "detail-pre";
   pre.textContent = text;
   container.appendChild(pre);
 }
 
-function renderBodyTab(container, body, emptyMessage, ownerPresent) {
-  if (!ownerPresent || !body) {
+function renderBodyTab(container, body, emptyMessage, ownerPresent, bodyInfo = null) {
+  if (!ownerPresent) {
     const empty = document.createElement("div");
     empty.className = "tab-empty";
     empty.textContent = emptyMessage;
     container.appendChild(empty);
     return;
   }
-
+  if (bodyInfo && bodyInfo.unavailableReason) {
+    const note = document.createElement("div");
+    note.className = "tab-empty";
+    note.textContent = `Body not captured (${bodyInfo.unavailableReason}).`;
+    container.appendChild(note);
+    return;
+  }
+  if (!body) {
+    const empty = document.createElement("div");
+    empty.className = "tab-empty";
+    empty.textContent = emptyMessage;
+    container.appendChild(empty);
+    return;
+  }
+  container.appendChild(buildTruncationNotice(bodyInfo));
   const parsed = tryParseJson(body);
   if (parsed.ok && typeof window.renderJsonTree === "function") {
     container.appendChild(window.renderJsonTree(parsed.value));
     return;
   }
-
   const pre = document.createElement("pre");
   pre.className = "detail-pre";
   pre.textContent = body;
   container.appendChild(pre);
+}
+
+function buildTruncationNotice(bodyInfo) {
+  if (!bodyInfo || !bodyInfo.truncated) return document.createDocumentFragment();
+  const note = document.createElement("div");
+  note.className = "truncation-notice";
+  note.textContent = "Body truncated to 1 MB by the extension.";
+  return note;
 }
 
 function tryParseJson(body) {

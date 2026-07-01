@@ -104,6 +104,7 @@ class SqliteStorage {
       curl: event.curl || null,
       errors_json: jsonOrNull(event.errors),
       raw_json: jsonOrNull(event.raw),
+      meta_json: jsonOrNull(event.meta),
       created_at: event.createdAt || now,
       updated_at: now
     };
@@ -112,12 +113,12 @@ class SqliteStorage {
       INSERT INTO events (
         session_id, client_event_id, kind, method, url, host, path,
         status_code, state, started_at, finished_at,
-        request_json, response_json, curl, errors_json, raw_json,
+        request_json, response_json, curl, errors_json, raw_json, meta_json,
         created_at, updated_at
       ) VALUES (
         @session_id, @client_event_id, @kind, @method, @url, @host, @path,
         @status_code, @state, @started_at, @finished_at,
-        @request_json, @response_json, @curl, @errors_json, @raw_json,
+        @request_json, @response_json, @curl, @errors_json, @raw_json, @meta_json,
         @created_at, @updated_at
       )
       ON CONFLICT (session_id, client_event_id) DO UPDATE SET
@@ -134,6 +135,7 @@ class SqliteStorage {
         curl = COALESCE(excluded.curl, events.curl),
         errors_json = COALESCE(excluded.errors_json, events.errors_json),
         raw_json = COALESCE(excluded.raw_json, events.raw_json),
+        meta_json = COALESCE(excluded.meta_json, events.meta_json),
         updated_at = excluded.updated_at
     `).run(params);
 
@@ -251,6 +253,7 @@ function hydrateEvent(row) {
     curl: row.curl,
     errors: safeParse(row.errors_json) || [],
     raw: safeParse(row.raw_json) || [],
+    meta: safeParse(row.meta_json) || null,
     createdAt: row.created_at,
     updatedAt: row.updated_at
   };

@@ -40,6 +40,7 @@ and browser profile/context.
 | Request body | from the patched `fetch` / `XHR` call site |
 | Response body | from the patched `fetch` / `XHR` call site — **may be unavailable on sites with a strict `Content-Security-Policy`** (see [Limitations](#limitations)) |
 | Response headers | from the `webRequest` listener |
+| cURL command | **synthesized** by the console parser from the captured request (method + URL + headers + body); browser-noise headers dropped, auth kept, shell-safe |
 | Build gate | extension is debug-tooling by definition; not loaded into release builds of anything |
 | Clear marker | `POST /api/browser-event` with `{ "clear": true, "browserSession": {...} }` |
 
@@ -61,6 +62,24 @@ monitored does not.
   to the console.
 - **Schema versioned.** Every event carries `"v": 1`. Schema changes bump `v`
   and the ingest endpoint refuses unknown versions with 400.
+
+### Synthesized cURL
+
+Browser events carry no native cURL string — the page makes the call, not the
+console. The browser event parser (`src/parsers/browserEventParser.js`,
+`buildCurl`) synthesizes a runnable command from the normalized request:
+
+- `-X <METHOD>` (omitted for `GET`), the full request URL (including query),
+  and `--data-raw` for the request body when present.
+- Request headers minus browser-managed / noisy ones curl would set itself or
+  that don't replay (`Host`, `Content-Length`, `Accept-Encoding`,
+  `Connection`, `sec-ch-*`, `sec-fetch-*`, `proxy-*`, …). `Authorization` and
+  `Cookie` are **kept** so the command reproduces the authenticated call.
+- Every value is single-quoted with `'\''` escaping, so nothing in a header or
+  body can break the quoting or inject shell syntax.
+
+Computed server-side at ingest and stored on the event, so the cURL tab and
+Copy button work exactly as they do for iOS / Android.
 
 ---
 

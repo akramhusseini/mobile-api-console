@@ -316,3 +316,68 @@ test("parser keeps the real method when request is present, even if response car
   assert.equal(event.method, "POST");
   assert.equal(event.request.method, "POST");
 });
+
+// --- Synthesized cURL for browser events ---
+
+const { buildCurl } = require("../src/parsers/browserEventParser");
+
+test("cURL: GET synthesizes without -X and without a body", () => {
+  const event = new BrowserEventParser().normalizeEvent(baseWireEvent());
+  assert.match(event.curl, /^curl 'https:\/\/app\.example\.com\/v1\/users'/);
+  assert.ok(!event.curl.includes("-X"), "GET should omit -X");
+  assert.ok(event.curl.includes("-H 'Accept: application/json'"));
+  assert.ok(!event.curl.includes("--data-raw"));
+});
+
+test("cURL: POST keeps auth/content-type, drops noisy headers, includes body", () => {
+  const event = new BrowserEventParser().normalizeEvent(baseWireEvent({
+    request: {
+      startedAt: 1, method: "POST", url: "https://api.example.com/v1/users",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": "Bearer tok123",
+        "Host": "api.example.com",
+        "Content-Length": "13",
+        "sec-ch-ua": "\"Chromium\"",
+        "sec-fetch-mode": "cors",
+        "Accept-Encoding": "gzip"
+      },
+      body: '{"name":"x"}',
+      bodyAvailable: true, bodyTruncated: false, bodyUnavailableReason: null
+    },
+    response: null
+  }));
+  assert.ok(event.curl.includes("-X POST"));
+  assert.ok(event.curl.includes("-H 'Content-Type: application/json'"));
+  assert.ok(event.curl.includes("-H 'Authorization: Bearer tok123'"), "auth must be kept for replay");
+  assert.ok(event.curl.includes("--data-raw '{\"name\":\"x\"}'"));
+  for (const noisy of ["Host:", "Content-Length:", "sec-ch-ua", "sec-fetch-mode", "Accept-Encoding"]) {
+    assert.ok(!event.curl.includes(noisy), "should drop noisy header: " + noisy);
+  }
+});
+
+test("cURL: shell-safe — single quotes in header values and body are escaped", () => {
+  const event = new BrowserEventParser().normalizeEvent(baseWireEvent({
+    request: {
+      startedAt: 1, method: "POST", url: "https://api.example.com/x",
+      headers: { "X-Note": "it's fine" },
+      body: "{\"q\":\"O'Brien\"}",
+      bodyAvailable: true, bodyTruncated: false, bodyUnavailableReason: null
+    },
+    response: null
+  }));
+  assert.ok(event.curl.includes("'\\''"), "embedded single quotes must be escaped");
+  assert.ok(event.curl.includes("X-Note: it'\\''s fine"));
+});
+
+test("cURL: no request side (error/complete-only) yields empty string (COALESCE preserves prior phase)", () => {
+  const event = new BrowserEventParser().normalizeEvent(baseWireEvent({
+    request: null, response: null, error: "Failed to fetch"
+  }));
+  assert.equal(event.curl, "");
+});
+
+test("buildCurl returns empty string without a url", () => {
+  assert.equal(buildCurl({ method: "GET" }), "");
+  assert.equal(buildCurl({}), "");
+});

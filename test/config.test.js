@@ -83,11 +83,27 @@ test("normalizes invalid defaultSource to auto", () => {
   });
 });
 
-test("--source accepts ios, android, demo, auto", () => {
+test("defaultSource: 'browser' from the config file is preserved", () => {
   withTempDir((cwd) => {
-    for (const source of ["ios", "android", "demo", "auto"]) {
+    const file = path.join(cwd, ".mobile-api-console.json");
+    fs.writeFileSync(file, JSON.stringify({ defaultSource: "browser" }));
+    const config = buildConfig([], { HOME: cwd }, cwd);
+    assert.equal(config.defaultSource, "browser");
+  });
+});
+
+test("MOBILE_API_CONSOLE_SOURCE=browser is accepted as defaultSource", () => {
+  withTempDir((cwd) => {
+    const config = buildConfig([], { HOME: cwd, MOBILE_API_CONSOLE_SOURCE: "browser" }, cwd);
+    assert.equal(config.defaultSource, "browser");
+  });
+});
+
+test("--source accepts ios, android, demo, browser, auto", () => {
+  withTempDir((cwd) => {
+    for (const source of ["ios", "android", "demo", "browser", "auto"]) {
       const config = buildConfig(["--source", source], { HOME: cwd }, cwd);
-      assert.equal(config.defaultSource, source);
+      assert.equal(config.defaultSource, source, `expected --source ${source} to be accepted`);
     }
   });
 });

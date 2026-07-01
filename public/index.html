@@ -18,6 +18,7 @@
         </div>
         <div class="top-actions">
           <button id="toggleListButton" class="icon-button" type="button" title="Hide call list" aria-label="Hide call list" aria-pressed="false">‹ Hide list</button>
+          <button id="setupBrowserButton" class="icon-button" type="button" title="Set up Browser capture" aria-label="Set up Browser capture">Set up Browser</button>
           <label class="source-picker-label" for="sourcePicker">Source</label>
           <select id="sourcePicker" class="select-input source-picker" aria-label="Log source"></select>
           <button id="restartButton" class="icon-button" title="Restart stream" aria-label="Restart stream">Restart</button>
@@ -96,6 +97,74 @@
           </article>
         </section>
       </main>
+    </div>
+
+    <div id="browserSetupModal" class="modal-backdrop" hidden>
+      <section class="setup-modal" role="dialog" aria-modal="true" aria-labelledby="browserSetupTitle">
+        <div class="setup-modal-header">
+          <div>
+            <h2 id="browserSetupTitle">Set up Browser capture</h2>
+            <p>Three steps: this dialog enables Browser source, then you load the extension and click its icon on any page you want to capture. No URLs to type.</p>
+          </div>
+          <button id="browserSetupClose" class="icon-button" type="button" aria-label="Close Browser setup">Close</button>
+        </div>
+
+        <ol class="setup-simple">
+          <li>
+            <strong>Load the extension (once).</strong>
+            Open <code>brave://extensions</code> (or <code>chrome://extensions</code>) → turn on <em>Developer mode</em> → <em>Load unpacked</em> → choose this folder:
+            <div class="setup-path">
+              <code id="browserSetupExtPath">…/extension</code>
+              <button id="browserSetupCopyPath" class="icon-button" type="button">Copy</button>
+            </div>
+          </li>
+          <li>
+            <strong>On your app, click the extension icon → “Capture this site.”</strong>
+            That grants permission and starts capture. Pin the icon (🧩 menu → pin) so it's always handy.
+          </li>
+          <li>
+            <strong>Watch it here.</strong>
+            Pick <em>Browser</em> in the Source dropdown above — your app's API calls stream in with request &amp; response bodies.
+          </li>
+        </ol>
+
+        <div id="browserSetupStatus" class="setup-status" role="status" aria-live="polite"></div>
+
+        <details class="setup-advanced">
+          <summary>Advanced — launch a separate clean browser instead</summary>
+          <p class="setup-advanced-note">Spins up an isolated browser profile with the extension preloaded. Most people don't need this: that profile has no login session, so apps requiring sign-in show a blank page. Prefer the two steps above.</p>
+
+          <label class="setup-field">
+            <span>Target page URLs</span>
+            <textarea id="browserSetupTargets" rows="3" spellcheck="false"></textarea>
+          </label>
+
+          <label class="setup-field">
+            <span>API URL permissions</span>
+            <textarea id="browserSetupRequests" rows="3" spellcheck="false"></textarea>
+          </label>
+
+          <div class="setup-row">
+            <label class="setup-field setup-field--inline">
+              <span>Browser</span>
+              <select id="browserSetupChoice" class="select-input">
+                <option value="auto">Auto</option>
+                <option value="brave">Brave</option>
+                <option value="chrome">Chrome</option>
+                <option value="edge">Edge</option>
+              </select>
+            </label>
+            <button id="browserSetupLaunch" class="icon-button primary-button" type="button">Launch Browser</button>
+            <button id="browserSetupCheck" class="icon-button" type="button">Check Source</button>
+          </div>
+          <ol class="setup-checklist">
+            <li id="setupStepConfig">Browser source enabled in the console</li>
+            <li id="setupStepLaunch">Browser launched with the unpacked extension</li>
+            <li id="setupStepAllow">In the extension tab, click Save, then Allow</li>
+            <li id="setupStepVerify">Select Browser and confirm one POST row with bodies</li>
+          </ol>
+        </details>
+      </section>
     </div>
 
     <script src="/jsonTree.js"></script>

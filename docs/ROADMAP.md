@@ -8,12 +8,18 @@ turn them into issues or milestones.
 
 - Android capture is implemented through `adb logcat`, the default `API_CURL`
   tag, and `AndroidApiCurlParser`.
-- The UI can switch between iOS, Android, and Demo views at runtime.
+- The UI can switch between iOS, Android, Browser, and Demo views at runtime.
 - SQLite persistence is active: captured sessions and events survive browser
   reloads and server restarts.
 - Always-on multi-source capture is active: if iOS and Android are both
   available, both keep recording while the UI selects which platform history to
   view.
+- Chromium-family browser capture (Chrome, Brave, Edge, Arc, Opera) is
+  implemented as a MV3 extension that lives at the top of the repo under
+  `extension/`. It POSTs to `/api/browser-event`; the server ingests
+  per-event sessions keyed by `origin` + extension `profileId` + `context`
+  (regular / incognito), with multiple concurrent sessions under one
+  selectable Browser source.
 
 ## Capture Sources
 
@@ -22,8 +28,8 @@ turn them into issues or milestones.
 - [x] Android log source backed by `adb logcat` (`AdbLogcatStream`).
 - [x] Emulator + physical-device selection (multi-device dropdown).
 - [x] Filter by tag (`--android-tag`, defaults to `API_CURL`).
-- [x] Header dropdown switches the visible view between iOS / Android / Demo
-  at runtime.
+- [x] Header dropdown switches the visible view between iOS / Android / Browser
+  / Demo at runtime.
 - [x] Platform metadata recorded on each session (`ios-simulator`,
   `android-emulator`, `android-device`, with package name, log tag, and device
   serial).
@@ -38,6 +44,42 @@ turn them into issues or milestones.
 - [ ] Reuse the iOS `===== REQUEST/CURL COMMAND/RESPONSE =====` markers on
   Android too, so Android apps that prefer the iOS-style block format can use
   the existing `MobileNetworkParser` instead of `AndroidApiCurlParser`.
+
+### Browser (Chromium, Phase 1)
+
+- [x] MV3 extension under `extension/`, loaded unpacked (not on the Web
+  Store).
+- [x] Push-driven source: background service worker is the only network
+  sender; page-world patch and content script only message the SW.
+- [x] Wire format `v: 1` (locked in `docs/BROWSER_SETUP.md`).
+- [x] One selectable `Browser` source with multiple live sessions keyed by
+  `origin` + extension `profileId` + `context` (regular / incognito).
+- [x] Two-phase upsert keyed by `eventId` (request / complete / error).
+- [x] Dedicated 2 MB body reader with explicit 413 response for the
+  `/api/browser-event` endpoint.
+- [x] OPTIONS preflight with permissive CORS headers.
+- [x] Disabled-capture response: 403 with `browser_capture_disabled` error
+  code so the extension can surface a hint to the user.
+- [x] Browser clear marker targets only the matching (origin, profile,
+  context) session; other browser sessions and other platforms are
+  untouched.
+- [x] Body fields carry `bodyAvailable`, `bodyTruncated`, and
+  `bodyUnavailableReason` so the UI can honestly report binary,
+  opaque-response, service-worker-only, and not-readable bodies.
+- [x] Capture mode label: `page-script` | `web-request` | `merged`, surfaced
+  in the request row and detail pane.
+- [x] UI: per-session labels (origin + context), capture-mode badge, body
+  truncation notice, "Body not captured (reason)" empty state.
+- [x] Optional host permissions for target and request URLs are requested
+  from the Options page Save click (a user gesture).
+- [ ] Auto-discover API hosts from page traffic or a lightweight setup crawl,
+  then show an in-app prompt to request the extra host permission from a user
+  gesture instead of requiring the API URL up front.
+- [ ] Firefox extension variant (close cousin of the Chromium build; deferred).
+- [ ] Safari Web Extension (Xcode build, signing, distribution; deferred).
+- [ ] WebSocket / EventSource / WebRTC capture (out of scope for Phase 1).
+- [ ] Publishing the extension to the Chrome Web Store (Phase 1 is
+  unpacked-only).
 
 ### Always-on Multi-source Capture
 

@@ -4,12 +4,14 @@ const { EventEmitter } = require("node:events");
 
 const { MobileNetworkParser } = require("./parsers/mobileNetworkParser");
 const { AndroidApiCurlParser } = require("./parsers/androidApiCurlParser");
+const { BrowserEventParser } = require("./parsers/browserEventParser");
 const { SimulatorLogStream } = require("./logSource/simulatorLogStream");
 const { AdbLogcatStream } = require("./logSource/adbLogcatStream");
 const { DemoLogSource } = require("./logSource/demoLogSource");
+const { BrowserPushSource } = require("./logSource/browserPushSource");
 const platform = require("./platform");
 
-const VALID_KINDS = new Set(["ios", "android", "demo"]);
+const VALID_KINDS = new Set(["ios", "android", "demo", "browser"]);
 
 const QUIET_FLUSH_MS = 800;
 
@@ -22,6 +24,7 @@ class SourceManager extends EventEmitter {
     this.detection = { ios: { available: false }, android: { available: false } };
     this.recorders = new Map();
     this.selectedSourceKey = null;
+    this.browserParser = new BrowserEventParser();
   }
 
   async detect() {
@@ -60,11 +63,13 @@ class SourceManager extends EventEmitter {
       const android = [...keys].find((key) => key.startsWith("android::"));
       if (android) return android;
     }
+    if (preference === "browser" && keys.has("browser")) return "browser";
     if (preference === "demo" && keys.has("demo")) return "demo";
 
     if (keys.has("ios")) return "ios";
     const android = [...keys].find((key) => key.startsWith("android::"));
     if (android) return android;
+    if (keys.has("browser")) return "browser";
     if (keys.has("demo")) return "demo";
     return null;
   }
@@ -106,6 +111,10 @@ class SourceManager extends EventEmitter {
       definitions.push(this.androidDefinition(device));
     }
 
+    if (this.browserEnabled()) {
+      definitions.push(this.browserDefinition());
+    }
+
     return definitions.length ? definitions : [this.demoDefinition()];
   }
 
@@ -124,8 +133,38 @@ class SourceManager extends EventEmitter {
       definitions.push(this.androidDefinition(device));
     }
 
+    if (this.browserEnabled()) {
+      definitions.push(this.browserDefinition());
+    }
+
     definitions.push(this.demoDefinition());
     return uniqueDefinitions(definitions);
+  }
+
+  browserEnabled() {
+    return Boolean(this.config.browser && this.config.browser.enabled === true);
+  }
+
+  configureBrowser(browser = {}) {
+    this.config.browser = {
+      enabled: browser.enabled === true,
+      targetUrls: Array.isArray(browser.targetUrls) ? browser.targetUrls.slice() : [],
+      requestUrls: Array.isArray(browser.requestUrls) ? browser.requestUrls.slice() : []
+    };
+
+    const recorder = this.recorders.get("browser");
+    if (recorder) {
+      recorder.label = this.browserLabel();
+      if (recorder.source && typeof recorder.source.configure === "function") {
+        recorder.source.configure(this.config.browser);
+      }
+    }
+
+    if (this.browserEnabled()) {
+      this.startRecorder(this.browserDefinition());
+    }
+
+    this.emit("changed", this.list());
   }
 
   androidDevicesToRecord() {
@@ -168,6 +207,19 @@ class SourceManager extends EventEmitter {
       opts: {},
       label: "Demo (offline)"
     };
+  }
+
+  browserDefinition() {
+    return {
+      sourceKey: "browser",
+      kind: "browser",
+      opts: {},
+      label: this.browserLabel()
+    };
+  }
+
+  browserLabel() {
+    return "Browser";
   }
 
   list() {
@@ -329,7 +381,14 @@ class SourceManager extends EventEmitter {
     }
 
     const { sourceKind, sourceMetadata } = this.kindToSessionMetadata(definition.kind, definition.opts);
-    this.store?.ensureSource(definition.sourceKey, { sourceKind, sourceMetadata });
+    if (definition.kind === "browser") {
+      // Multi-session source: register the umbrella entry so the source is
+      // selectable before any traffic arrives. Per-(origin, profile, context)
+      // sessions are created lazily at ingest time.
+      this.store?.registerUmbrellaSource(definition.sourceKey, { sourceKind, sourceMetadata });
+    } else {
+      this.store?.ensureSource(definition.sourceKey, { sourceKind, sourceMetadata });
+    }
 
     const recorder = {
       sourceKey: definition.sourceKey,
@@ -370,6 +429,16 @@ class SourceManager extends EventEmitter {
         }
       };
     }
+    if (kind === "browser") {
+      return {
+        sourceKind: "browser-chromium",
+        sourceMetadata: {
+          sourceKey: "browser",
+          targetUrls: this.config.browser?.targetUrls || [],
+          requestUrls: this.config.browser?.requestUrls || []
+        }
+      };
+    }
     return {
       sourceKind: "demo",
       sourceMetadata: {
@@ -381,6 +450,7 @@ class SourceManager extends EventEmitter {
 
   makeParser(kind) {
     if (kind === "android") return new AndroidApiCurlParser({ logTag: this.config.android.logTag });
+    if (kind === "browser") return new BrowserEventParser();
     // Both iOS and demo emit the iOS-style block markers.
     return new MobileNetworkParser({ processName: this.config.ios.processName });
   }
@@ -398,6 +468,12 @@ class SourceManager extends EventEmitter {
         adbPath,
         deviceSerial: opts.deviceSerial || null,
         logTag: this.config.android.logTag
+      });
+    }
+    if (kind === "browser") {
+      return new BrowserPushSource({
+        targetUrls: this.config.browser?.targetUrls || [],
+        requestUrls: this.config.browser?.requestUrls || []
       });
     }
     return new DemoLogSource();
@@ -465,6 +541,73 @@ class SourceManager extends EventEmitter {
       if (action.type === "upsert") this.store.upsertForSource(recorder.sourceKey, action.event);
       if (action.type === "error") this.store.addErrorForSource(recorder.sourceKey, action.message, action.rawLine);
     }
+  }
+
+  // The browser ingest path. The server handler validates the wire envelope
+  // before calling this; we further enforce shape, derive the session key
+  // from browserSession (origin + profileId + context), ensure the right
+  // SQLite session exists, and upsert via the EventStore. Capture mode is
+  // taken at face value — the extension already merged page-script and
+  // webRequest observations before posting, so we trust it. Returns the
+  // stored event so the caller can echo useful metadata back to the SW.
+  ingestBrowserEvent(wireEvent) {
+    if (!wireEvent || typeof wireEvent !== "object") {
+      throw new Error("Browser event must be an object");
+    }
+
+    const sessionKey = this.browserParser.sessionKeyFor(wireEvent);
+    const sourceMetadata = this.browserParser.sourceMetadataFor(wireEvent);
+
+    if (!this.recorders.has("browser")) {
+      this.startMissingRecorders();
+    }
+
+    this.store.ensureSourceSession(sessionKey, {
+      sourceKey: "browser",
+      sourceKind: wireEvent.sourceKind,
+      sourceMetadata
+    });
+
+    const event = this.browserParser.normalizeEvent(wireEvent);
+    const saved = this.store.upsertForSourceSession(sessionKey, event);
+
+    const browserRecorder = this.recorders.get("browser");
+    if (browserRecorder?.source) {
+      try {
+        browserRecorder.source.noteIngest({
+          captureMode: wireEvent.captureMode,
+          origin: wireEvent.browserSession?.origin,
+          phase: wireEvent.phase,
+          error: wireEvent.error || null
+        });
+      } catch {
+        // Status updates are best-effort.
+      }
+    }
+
+    return { sessionKey, event: saved };
+  }
+
+  // Targeted clear: only the given browser session is cleared; other
+  // browser sessions and other platforms are untouched.
+  clearBrowserSession(wireEvent) {
+    const sessionKey = this.browserParser.sessionKeyFor(wireEvent);
+    if (!this.store.hasSourceSession(sessionKey)) {
+      return null;
+    }
+    // clearSourceSession emits a session-start payload. We mirror it here so
+    // the HTTP handler can return both the new session and the previous id.
+    let payload = null;
+    const listener = (next) => {
+      if (next.sessionKey === sessionKey) payload = next;
+    };
+    this.store.on("session-start", listener);
+    try {
+      this.store.clearSourceSession(sessionKey, "browser-marker");
+    } finally {
+      this.store.off("session-start", listener);
+    }
+    return payload;
   }
 
   stop() {

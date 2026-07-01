@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Mobile API Console — Options</title>
+    <link rel="stylesheet" href="options.css">
+  </head>
+  <body>
+    <main class="wrap">
+      <h1>Mobile API Console</h1>
+      <p class="lead">
+        Mirror <code>fetch</code> and <code>XMLHttpRequest</code> traffic from chosen
+        tabs to a local Mobile API Console. Only the patterns you list below
+        will be observed. Saving the form requests the matching host
+        permissions from a user gesture.
+      </p>
+
+      <form id="configForm">
+        <label class="field">
+          <span class="field-label">Console host</span>
+          <input id="consoleHost" type="text" value="http://localhost:3957" required>
+          <span class="field-hint">Base URL of the running console. The extension posts to <code>${"<consoleHost>"}/api/browser-event</code>.</span>
+        </label>
+
+        <label class="field">
+          <span class="field-label">Target page URLs</span>
+          <textarea id="targetUrls" rows="4" placeholder="https://app.example.com/*" required></textarea>
+          <span class="field-hint">One Chrome match pattern per line. The extension injects only into these pages. Empty = capture nothing.</span>
+        </label>
+
+        <label class="field">
+          <span class="field-label">Request URL permissions (optional)</span>
+          <textarea id="requestUrls" rows="4" placeholder="https://api.example.com/*"></textarea>
+          <span class="field-hint">One Chrome match pattern per line. Add cross-origin API hosts here so the extension can attach response-header metadata via <code>chrome.webRequest</code>.</span>
+        </label>
+
+        <div class="actions">
+          <button type="submit" class="primary">Save</button>
+          <button type="button" id="testBtn" class="secondary">Send test event</button>
+          <span id="status" class="status" role="status" aria-live="polite"></span>
+        </div>
+      </form>
+
+      <section class="profile">
+        <h2>Browser profile</h2>
+        <p>This extension tags every event with a stable per-profile id so different browser profiles and incognito contexts stay in separate browser sessions. The id is randomly generated and stored in this profile's extension storage.</p>
+        <div class="profile-row">
+          <code id="profileId">(loading)</code>
+          <button type="button" id="rotateProfile" class="secondary">Regenerate</button>
+        </div>
+      </section>
+
+      <section class="help">
+        <h2>How it works</h2>
+        <ul>
+          <li>Only the background service worker sends events to the console.</li>
+          <li>Page-world capture sees the call bodies. <code>chrome.webRequest</code> supplies response headers when host permissions allow.</li>
+          <li>After updating the unpacked extension files, reload the extension and hard-refresh the page so the latest page-world patch is active.</li>
+          <li>Different browser profiles or regular + incognito produce separate browser sessions in the console.</li>
+        </ul>
+      </section>
+    </main>
+    <script src="options-helper.js"></script>
+    <script src="options.js"></script>
+  </body>
+</html>

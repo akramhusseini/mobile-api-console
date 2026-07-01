@@ -32,6 +32,7 @@ function withManager(detection, fn, configOverrides = {}) {
         deviceSerial: null,
         adbPath: null
       },
+      browser: { enabled: false, targetUrls: [], requestUrls: [] },
       ...configOverrides
     },
     store
@@ -93,6 +94,38 @@ test("adapts to iOS-only environments", () => {
   });
 });
 
+test("defaultSource: 'browser' selects the browser umbrella on start when enabled", () => {
+  withManager(noDevices(), ({ manager, store }) => {
+    manager.config = {
+      ...manager.config,
+      defaultSource: "browser",
+      browser: { enabled: true, targetUrls: ["https://app.example.com/*"], requestUrls: [] }
+    };
+    manager.start();
+
+    assert.equal(manager.selectedSourceKey, "browser");
+    assert.equal(store.selectedSourceKey, "browser");
+    assert.ok(manager.recorders.has("browser"));
+    assert.ok(store.sources.has("browser"), "umbrella must be registered on initial start");
+  });
+});
+
+test("defaultSource: 'browser' is ignored when browser is disabled", () => {
+  withManager(noDevices(), ({ manager, store }) => {
+    manager.config = {
+      ...manager.config,
+      defaultSource: "browser",
+      browser: { enabled: false, targetUrls: [], requestUrls: [] }
+    };
+    manager.start();
+
+    // Fallback to demo since no other source is available.
+    assert.notEqual(manager.selectedSourceKey, "browser");
+    assert.equal(manager.selectedSourceKey, "demo");
+    assert.equal(store.selectedSourceKey, "demo");
+  });
+});
+
 test("clear markers only reset the matching source session", () => {
   withManager(bothPlatforms(), ({ manager, store }) => {
     manager.start();
@@ -146,7 +179,14 @@ function iosOnly() {
       hasBooted: true,
       booted: [{ name: "iPhone 16", udid: "00000000-0000-0000-0000-000000000000" }]
     },
-    android: { available: false, hasDevices: false, adb: "adb", devices: [] }
+    android: { available: false, hasDevices: false, devices: [] }
+  };
+}
+
+function noDevices() {
+  return {
+    ios: { available: false, hasBooted: false, booted: [] },
+    android: { available: false, hasDevices: false, devices: [] }
   };
 }
 

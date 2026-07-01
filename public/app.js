@@ -992,7 +992,7 @@ function renderCurlTab(container, curl, event) {
     const empty = document.createElement("div");
     empty.className = "tab-empty";
     empty.textContent = event?.meta?.source === "browser"
-      ? "Browser events do not produce a cURL command (the page makes the call, not the console)."
+      ? "No request data captured for this event, so no cURL could be built."
       : "No cURL command captured yet.";
     container.appendChild(empty);
     return;

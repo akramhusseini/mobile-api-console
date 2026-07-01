@@ -24,7 +24,10 @@ Electron wrapper and no frontend build step. The only runtime package is
   colors, collapsible `{}` and `[]` nodes, and bracket-pair highlight),
   Headers (request and response headers side by side), Payload (request
   body, also rendered as a tree when JSON), Response (raw response
-  body), cURL, Errors, and Raw log lines.
+  body), cURL, Errors, and Raw log lines. Browser events carry no native
+  cURL (the page makes the call), so the console synthesizes a runnable one
+  from the captured request — dropping browser-noise headers and keeping
+  auth so it replays as-is.
 - Search and filter by URL, status, method.
 - Resizable workspace: drag the divider between the call list and the
   detail pane to change their proportions, or use the "Hide list"

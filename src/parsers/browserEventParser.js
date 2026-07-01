@@ -135,7 +135,18 @@ class BrowserEventParser {
       path: parsed.path || "/(unknown endpoint)",
       request: request.normalized,
       response: response?.normalized || null,
-      curl: "",
+      // Browser events carry no real curl string (the page makes the call).
+      // Synthesize one from the request side so the cURL tab + Copy button
+      // work like they do for mobile. Empty when there is no request side,
+      // so the storage COALESCE keeps a curl a prior phase already built.
+      curl: request.normalized
+        ? buildCurl({
+            method: request.method,
+            url: finalUrl,
+            headers: request.normalized.headers,
+            body: request.normalized.body
+          })
+        : "",
       statusCode,
       errors,
       raw,
@@ -254,4 +265,53 @@ function parseUrl(value) {
   }
 }
 
-module.exports = { BrowserEventParser };
+// Headers curl sets itself, or that only make sense inside a live browser and
+// would be noise (or actively wrong) when replaying the call from a shell.
+// Auth-bearing headers (Authorization, Cookie) are intentionally KEPT — the
+// whole point of the copied command is to reproduce the authenticated call.
+const CURL_DROP_HEADERS = new Set([
+  "host", "connection", "content-length", "accept-encoding",
+  "upgrade-insecure-requests", "dnt", "priority", "te", "cache-control",
+  "pragma"
+]);
+const CURL_DROP_PREFIXES = ["sec-ch-", "sec-fetch-", "proxy-"];
+
+function isNoisyCurlHeader(name) {
+  const lower = String(name || "").toLowerCase();
+  if (!lower) return true;
+  if (CURL_DROP_HEADERS.has(lower)) return true;
+  return CURL_DROP_PREFIXES.some((prefix) => lower.startsWith(prefix));
+}
+
+// Wrap a value for safe single-quoted shell use: end the quote, emit an
+// escaped literal quote, reopen. Guarantees the value can never break out of
+// the quoting or inject shell syntax, no matter what the header/body contains.
+function shellQuote(value) {
+  return `'${String(value == null ? "" : value).replace(/'/g, "'\\''")}'`;
+}
+
+// Synthesize a runnable curl command from normalized request data. Browser
+// events don't carry a real curl string (the page makes the call), so we
+// build one from method + URL + headers + body. Returns "" when there is no
+// request side to build from, so the storage COALESCE preserves any curl a
+// prior phase already produced.
+function buildCurl({ method, url, headers, body } = {}) {
+  if (!url) return "";
+  const verb = String(method || "GET").toUpperCase();
+  const parts = [`curl ${shellQuote(url)}`];
+  if (verb !== "GET") parts.push(`-X ${verb}`);
+
+  const headerBag = headers && typeof headers === "object" ? headers : {};
+  for (const [name, value] of Object.entries(headerBag)) {
+    if (isNoisyCurlHeader(name)) continue;
+    parts.push(`-H ${shellQuote(`${name}: ${value == null ? "" : value}`)}`);
+  }
+
+  if (typeof body === "string" && body.length > 0) {
+    parts.push(`--data-raw ${shellQuote(body)}`);
+  }
+
+  return parts.join(" \\\n  ");
+}
+
+module.exports = { BrowserEventParser, buildCurl };

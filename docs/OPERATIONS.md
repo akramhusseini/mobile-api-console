@@ -93,6 +93,44 @@ MOBILE_API_CONSOLE_DB=/path/to/data.db npm start
 
 The parent directory is created automatically.
 
+## Querying Captured Traffic Directly
+
+For quick lookups (e.g. "what does this endpoint actually return?") it's often
+faster to query the SQLite file directly than to use the UI:
+
+```sh
+sqlite3 ~/Library/Application\ Support/mobile-api-console/data.db \
+  "SELECT DISTINCT path FROM events ORDER BY path;"
+
+sqlite3 ~/Library/Application\ Support/mobile-api-console/data.db \
+  "SELECT id, path, response_json FROM events WHERE path LIKE '%courses%' ORDER BY id DESC LIMIT 5;"
+```
+
+Schema (see `migrations/001_initial_schema.sql` / `002_browser_meta.sql`):
+`events(id, session_id, client_event_id, kind, method, url, host, path,
+status_code, state, started_at, finished_at, request_json, response_json,
+curl, errors_json, raw_json, meta_json)`.
+
+**Gotcha — double-wrapped JSON.** `request_json`/`response_json` are JSON
+*objects* (`{"statusCode", "url", "headers", "body", "meta", ...}`) but their
+`body` field is itself a **JSON-encoded string**, not a nested object — parse
+it a second time. On top of that, this backend's own API convention wraps
+every payload in `{"body": {...actual data...}}`, so the real payload is
+usually three levels deep: `response_json` (object) → `.body` (string, needs
+`json.loads`) → parsed `.body` (object, the backend envelope) → the actual
+fields. Example in Python:
+
+```python
+import json
+outer = json.loads(response_json_column_value)
+inner = json.loads(outer["body"])       # body is a string — parse again
+payload = inner.get("body", inner)      # backend's own envelope
+```
+
+The `curl` column already has a ready-to-run reconstructed cURL command for
+the request, which is usually the fastest way to eyeball what a given
+endpoint needs/returns.
+
 ## Service Logs
 
 When running through the LaunchAgent, stdout and stderr are written to:

@@ -59,7 +59,7 @@ class SimulatorLogStream extends LogSource {
       "log",
       "stream",
       "--style",
-      "compact",
+      "json",
       "--level",
       "debug",
       "--predicate",

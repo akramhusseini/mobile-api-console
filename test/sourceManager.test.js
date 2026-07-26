@@ -144,6 +144,75 @@ test("clear markers only reset the matching source session", () => {
   });
 });
 
+test("refresh picks up a simulator booted after start and broadcasts each change once", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "mobile-api-console-test-"));
+  const storage = new SqliteStorage({ databasePath: path.join(dir, "data.db") }).init();
+  const store = new EventStore({ storage });
+  const manager = new SourceManager({
+    config: {
+      demo: false,
+      noStream: false,
+      defaultSource: "auto",
+      ios: {
+        simulator: "booted",
+        predicate: "subsystem == \"com.example.mobile\"",
+        processName: "ExampleMobile"
+      },
+      android: {
+        applicationId: "com.example.mobile",
+        logTag: "API_CURL",
+        deviceSerial: null,
+        adbPath: null
+      },
+      browser: { enabled: false, targetUrls: [], requestUrls: [] }
+    },
+    store
+  });
+  manager.makeSource = (kind, opts) => new FakeSource(kind, opts);
+  manager.makeParser = (kind) => new FakeParser(kind);
+
+  let detection = noDevices();
+  manager.detect = async () => {
+    manager.detection = detection;
+    return detection;
+  };
+
+  try {
+    const emissions = [];
+    manager.on("changed", (list) => emissions.push(list));
+
+    manager.start();
+    assert.equal(manager.recorders.has("ios"), false);
+    assert.equal(emissions.length, 1); // start() announces the initial set
+
+    // Steady state: repeated re-probes with no device change stay silent.
+    await manager.refresh();
+    await manager.refresh();
+    assert.equal(emissions.length, 1);
+
+    // Simulator boots: the next re-probe starts the recorder and announces it.
+    detection = iosOnly();
+    await manager.refresh();
+    assert.equal(emissions.length, 2);
+    assert.ok(manager.recorders.has("ios"));
+    assert.ok(emissions[1].selectable.some((entry) => entry.sourceKey === "ios" && entry.running));
+
+    // Further re-probes with the same device set do not re-broadcast.
+    await manager.refresh();
+    assert.equal(emissions.length, 2);
+
+    // Simulator shuts down: the smaller source set is announced once.
+    detection = noDevices();
+    await manager.refresh();
+    assert.equal(emissions.length, 3);
+    assert.ok(!emissions[2].selectable.some((entry) => entry.sourceKey === "ios"));
+  } finally {
+    manager.stop();
+    storage.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 function bothPlatforms() {
   return {
     ios: {

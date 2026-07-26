@@ -5,6 +5,7 @@ const path = require("node:path");
 const Database = require("better-sqlite3");
 
 const { applyMigrations } = require("./migrations");
+const { normalizeCapturedEvent } = require("../captureNormalization");
 
 const DEFAULT_MIGRATIONS_DIR = path.join(__dirname, "..", "..", "migrations");
 
@@ -64,12 +65,12 @@ class SqliteStorage {
     return row ? hydrateSession(row) : null;
   }
 
-  listSessions({ limit = 50 } = {}) {
+  listSessions({ limit = 50, offset = 0 } = {}) {
     const rows = this.db.prepare(`
       SELECT * FROM sessions
       ORDER BY started_at DESC, id DESC
-      LIMIT ?
-    `).all(limit);
+      LIMIT ? OFFSET ?
+    `).all(limit, offset);
     return rows.map(hydrateSession);
   }
 
@@ -87,25 +88,26 @@ class SqliteStorage {
 
   saveEvent(sessionId, event) {
     const now = nowIso();
+    const normalizedEvent = normalizeCapturedEvent(event);
     const params = {
       session_id: sessionId,
-      client_event_id: String(event.id),
-      kind: event.kind || null,
-      method: event.method || null,
-      url: event.url || null,
-      host: event.host || null,
-      path: event.path || null,
-      status_code: numericStatus(event.statusCode),
-      state: event.state || null,
-      started_at: event.startedAt || event.createdAt || now,
-      finished_at: event.finishedAt || null,
-      request_json: jsonOrNull(event.request),
-      response_json: jsonOrNull(event.response),
-      curl: event.curl || null,
-      errors_json: jsonOrNull(event.errors),
-      raw_json: jsonOrNull(event.raw),
-      meta_json: jsonOrNull(event.meta),
-      created_at: event.createdAt || now,
+      client_event_id: String(normalizedEvent.id),
+      kind: normalizedEvent.kind || null,
+      method: normalizedEvent.method || null,
+      url: normalizedEvent.url || null,
+      host: normalizedEvent.host || null,
+      path: normalizedEvent.path || null,
+      status_code: numericStatus(normalizedEvent.statusCode),
+      state: normalizedEvent.state || null,
+      started_at: normalizedEvent.startedAt || normalizedEvent.createdAt || now,
+      finished_at: normalizedEvent.finishedAt || null,
+      request_json: jsonOrNull(normalizedEvent.request),
+      response_json: jsonOrNull(normalizedEvent.response),
+      curl: normalizedEvent.curl || null,
+      errors_json: jsonOrNull(normalizedEvent.errors),
+      raw_json: jsonOrNull(normalizedEvent.raw),
+      meta_json: jsonOrNull(normalizedEvent.meta),
+      created_at: normalizedEvent.createdAt || now,
       updated_at: now
     };
 
@@ -236,7 +238,7 @@ function hydrateSession(row) {
 }
 
 function hydrateEvent(row) {
-  return {
+  return normalizeCapturedEvent({
     id: row.client_event_id,
     sessionId: row.session_id,
     kind: row.kind,
@@ -256,7 +258,7 @@ function hydrateEvent(row) {
     meta: safeParse(row.meta_json) || null,
     createdAt: row.created_at,
     updatedAt: row.updated_at
-  };
+  });
 }
 
 function safeParse(text) {

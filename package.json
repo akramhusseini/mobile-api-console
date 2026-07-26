@@ -7,18 +7,22 @@
   "type": "commonjs",
   "bin": {
     "mobile-api-console": "./bin/mobile-api-console",
-    "mobile-api-console-browser-dev": "./bin/browser-dev.js"
+    "mobile-api-console-browser-dev": "./bin/browser-dev.js",
+    "mobile-api-console-mcp": "./bin/mobile-api-console-mcp"
   },
   "scripts": {
     "start": "node server.js",
     "demo": "node server.js --demo",
     "test": "node --test test/*.test.js",
-    "browser:dev": "node ./bin/browser-dev.js"
+    "browser:dev": "node ./bin/browser-dev.js",
+    "mcp": "node ./src/mcp/server.js"
   },
   "engines": {
     "node": ">=18"
   },
   "dependencies": {
-    "better-sqlite3": "^11.5.0"
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "better-sqlite3": "^11.5.0",
+    "zod": "^4.4.3"
   }
 }

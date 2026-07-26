@@ -87,6 +87,124 @@ test("extracts eventMessage from json log lines", () => {
   assert.equal(finalEvent.url, "https://example.com/a");
 });
 
+test("decodes an ndjson response without capturing unified-log metadata", () => {
+  const parser = new MobileNetworkParser();
+  const responseMessage = [
+    "===== RESPONSE =====",
+    "Status Code: 200",
+    "URL: https://example.com/api/v1/announcements",
+    "Body:",
+    '{"body":{"data":[{"id":58,"title":"rtyrt"}]}}',
+    "======================"
+  ].join("\n");
+
+  const actions = collect(parser, [
+    JSON.stringify({
+      eventMessage: responseMessage,
+      processImageUUID: "DA30BF70-974C-3829-9762-63D062A1EDCA",
+      traceID: 102097763705553412,
+      processID: 14528
+    })
+  ]);
+
+  const finalEvent = actions.filter((action) => action.type === "upsert").at(-1).event;
+  assert.deepEqual(JSON.parse(finalEvent.response.body), {
+    body: { data: [{ id: 58, title: "rtyrt" }] }
+  });
+  assert.doesNotMatch(finalEvent.response.body, /processImageUUID|traceID|processID/);
+  assert.doesNotMatch(finalEvent.response.body, /\\\"body\\\"/);
+});
+
+test("splits a multiline eventMessage before parsing request fields", () => {
+  const parser = new MobileNetworkParser();
+  const actions = collect(parser, [
+    JSON.stringify({
+      eventMessage: [
+        "===== REQUEST =====",
+        "URL: https://example.com/api/v1/announcements",
+        "Method: PUT",
+        "Headers:",
+        "  Authorization: Bearer parser-secret",
+        "Body:",
+        '{"title":"Updated"}',
+        "===================="
+      ].join("\n")
+    })
+  ]);
+
+  const event = actions.filter((action) => action.type === "upsert").at(-1).event;
+  assert.equal(event.method, "PUT");
+  assert.equal(event.url, "https://example.com/api/v1/announcements");
+  assert.equal(event.request.headers.Authorization, "Bearer parser-secret");
+  assert.equal(event.request.body, '{"title":"Updated"}');
+  assert.doesNotMatch(event.method, /Headers|Bearer|\n/);
+});
+
+test("splits literal escaped newlines from unified-log event messages", () => {
+  const parser = new MobileNetworkParser();
+  const actions = collect(parser, [
+    JSON.stringify({
+      eventMessage: [
+        "===== REQUEST =====",
+        String.raw`URL: https:\/\/example.com/api/v1/announcements/32`,
+        "Method: GET",
+        "Headers:",
+        "  Authorization: Bearer parser-secret",
+        "Body:",
+        '{"note":"first\\\\nsecond"}',
+        "===================="
+      ].join("\\n")
+    })
+  ]);
+
+  const event = actions.filter((action) => action.type === "upsert").at(-1).event;
+  assert.equal(event.method, "GET");
+  assert.equal(event.url, "https://example.com/api/v1/announcements/32");
+  assert.equal(event.path, "/api/v1/announcements/32");
+  assert.equal(event.request.headers.Authorization, "Bearer parser-secret");
+  assert.equal(event.request.body, '{"note":"first\\\\nsecond"}');
+});
+
+test("finalizes the last response when a JSON log line suffixes its separator", () => {
+  const parser = new MobileNetworkParser();
+  const requestLine = `"eventMessage" : "${[
+    "===== REQUEST =====",
+    "URL: https:\\/\\/example.com/api/v1/announcements",
+    "Method: GET",
+    "===================="
+  ].join("\\n")}",`;
+  const responseLine = `"eventMessage" : "${[
+    "===== RESPONSE =====",
+    "Status Code: 200",
+    "URL: https:\\/\\/example.com/api/v1/announcements",
+    "Body:",
+    '{"data":[]}',
+    "======================"
+  ].join("\\n")}",`;
+
+  const requestActions = parser.pushLine(requestLine);
+  const responseActions = parser.pushLine(responseLine);
+  const event = responseActions.filter((action) => action.type === "upsert").at(-1)?.event;
+
+  assert.equal(requestActions.filter((action) => action.type === "upsert").length, 1);
+  assert.ok(event, "the final response must upsert without waiting for another API block");
+  assert.equal(event.statusCode, 200);
+  assert.equal(event.state, "success");
+  assert.equal(event.response.body, '{"data":[]}');
+});
+
+test("quiet flush finalizes an unterminated final response block", () => {
+  const parser = new MobileNetworkParser();
+  parser.pushLine("===== RESPONSE =====");
+  parser.pushLine("Status Code: 204");
+  parser.pushLine("URL: https://example.com/api/v1/ping");
+
+  const event = parser.flush().filter((action) => action.type === "upsert").at(-1)?.event;
+  assert.ok(event);
+  assert.equal(event.statusCode, 204);
+  assert.equal(event.state, "success");
+});
+
 test("unescapes Apple's octal escapes in compact stream output", () => {
   const parser = new MobileNetworkParser();
   const actions = collect(parser, [

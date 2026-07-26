@@ -169,15 +169,31 @@ class EventStore extends EventEmitter {
   }
 
   recentSessions({ limit = 20, sourceKey = null } = {}) {
-    const fetchLimit = sourceKey ? Math.max(limit * 5, 50) : limit;
-    const sessions = this.storage
-      .listSessions({ limit: fetchLimit })
-      .map((session) => this.decorateSession(session));
+    if (!sourceKey) {
+      return this.storage
+        .listSessions({ limit })
+        .map((session) => this.decorateSession(session));
+    }
 
-    if (!sourceKey) return sessions.slice(0, limit);
-    return sessions
-      .filter((session) => session.sourceKey === sourceKey)
-      .slice(0, limit);
+    // Sessions from different sources share one table. Page through the
+    // global history before filtering so a long-running active source does
+    // not disappear merely because newer sessions exist for other sources.
+    const matches = [];
+    const batchSize = Math.max(limit * 5, 50);
+    let offset = 0;
+
+    while (matches.length < limit) {
+      const batch = this.storage.listSessions({ limit: batchSize, offset });
+      for (const rawSession of batch) {
+        const session = this.decorateSession(rawSession);
+        if (session.sourceKey === sourceKey) matches.push(session);
+        if (matches.length === limit) break;
+      }
+      if (batch.length < batchSize) break;
+      offset += batch.length;
+    }
+
+    return matches;
   }
 
   eventsForSession(sessionId, { limit = null } = {}) {

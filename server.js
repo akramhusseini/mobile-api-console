@@ -26,6 +26,11 @@ let store;
 let sourceManager;
 let hub;
 let retentionTimer = null;
+let sourceRefreshTimer = null;
+
+// How often to re-probe simulator/emulator detection so a device booted
+// after server start appears in the UI without a manual /api/sources poke.
+const SOURCE_DETECTION_REFRESH_MS = 15000;
 
 main().catch((error) => {
   console.error(`Mobile API Console failed to start: ${error.message}`);
@@ -51,6 +56,24 @@ async function main() {
   if (config.cleanupOnStart) runRetention();
   retentionTimer = setInterval(runRetention, 24 * 60 * 60 * 1000);
   retentionTimer.unref?.();
+
+  // Periodically re-probe detection. SourceManager.refresh() only broadcasts
+  // "changed" when the source set actually changes, so idle ticks are cheap.
+  if (!config.demo && !config.noStream) {
+    let refreshInFlight = false;
+    sourceRefreshTimer = setInterval(async () => {
+      if (refreshInFlight) return;
+      refreshInFlight = true;
+      try {
+        await sourceManager.refresh();
+      } catch {
+        // Detection is best-effort; the next tick retries.
+      } finally {
+        refreshInFlight = false;
+      }
+    }, SOURCE_DETECTION_REFRESH_MS);
+    sourceRefreshTimer.unref?.();
+  }
 
   server = http.createServer(handleRequest);
   server.on("error", (error) => {

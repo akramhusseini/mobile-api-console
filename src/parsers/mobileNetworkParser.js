@@ -1,5 +1,7 @@
 "use strict";
 
+const { normalizeCaptureUrl, normalizeHttpMethod, splitCaptureLines } = require("../captureNormalization");
+
 const ANSI_RE = /\x1b\[[0-9;]*m/g;
 const CLEAR_MARKERS = [
   "API_CONSOLE_CLEAR",
@@ -21,7 +23,22 @@ class MobileNetworkParser {
   }
 
   pushLine(rawLine) {
-    const line = this.extractMessage(String(rawLine || ""));
+    const raw = String(rawLine || "");
+    const message = this.extractMessage(raw);
+    const logicalLines = splitCaptureLines(message);
+
+    if (logicalLines.length === 1) {
+      return this.pushExtractedLine(message, rawLine);
+    }
+
+    const actions = [];
+    for (const line of logicalLines) {
+      actions.push(...this.pushExtractedLine(line, line));
+    }
+    return actions;
+  }
+
+  pushExtractedLine(line, rawLine) {
     const trimmed = line.trim();
     const actions = [];
 
@@ -87,6 +104,10 @@ class MobileNetworkParser {
     return [];
   }
 
+  flush() {
+    return this.finishActive();
+  }
+
   blockKind(line) {
     if (line.includes("===== MULTIPART REQUEST =====")) return "multipartRequest";
     if (line.includes("===== REQUEST =====")) return "request";
@@ -96,7 +117,7 @@ class MobileNetworkParser {
   }
 
   isSeparator(line) {
-    return /^={8,}$/.test(line);
+    return isBlockSeparator(line);
   }
 
   isClearLine(line) {
@@ -267,8 +288,8 @@ class MobileNetworkParser {
 
 function parseRequestBlock(lines, raw) {
   return {
-    url: findField(lines, "URL"),
-    method: findField(lines, "Method"),
+    url: normalizeCaptureUrl(findField(lines, "URL")),
+    method: normalizeMethod(findField(lines, "Method")),
     headers: parseHeaders(lines),
     body: parseBody(lines),
     raw
@@ -278,7 +299,7 @@ function parseRequestBlock(lines, raw) {
 function parseResponseBlock(lines, raw) {
   return {
     statusCode: Number.parseInt(findField(lines, "Status Code") || "0", 10) || null,
-    url: findField(lines, "URL"),
+    url: normalizeCaptureUrl(findField(lines, "URL")),
     headers: parseHeaders(lines),
     body: parseBody(lines),
     raw
@@ -288,7 +309,7 @@ function parseResponseBlock(lines, raw) {
 function parseCurlBlock(lines, raw) {
   const bodyLines = lines
     .filter((line) => !line.includes("===== CURL COMMAND ====="))
-    .filter((line) => !/^={8,}$/.test(line.trim()));
+    .filter((line) => !isBlockSeparator(line));
   const command = bodyLines.join("\n").trim();
   const methodMatch = command.match(/curl\s+-X\s+([A-Z]+)/i);
   const urls = [...command.matchAll(/'(https?:\/\/[^']+)'/g)].map((match) => match[1]);
@@ -304,7 +325,7 @@ function findField(lines, label) {
   const prefix = `${label}:`;
   for (const line of lines) {
     const index = line.indexOf(prefix);
-    if (index >= 0) return line.slice(index + prefix.length).trim();
+    if (index >= 0) return line.slice(index + prefix.length).split(/\r?\n/, 1)[0].trim();
   }
   return "";
 }
@@ -322,7 +343,7 @@ function parseHeaders(lines) {
     }
 
     if (!inHeaders) continue;
-    if (!trimmed || trimmed === "Body:" || /^={8,}$/.test(trimmed)) break;
+    if (!trimmed || trimmed === "Body:" || isBlockSeparator(trimmed)) break;
     if (/^(URL|Method|Status Code|Body):/.test(trimmed)) break;
 
     const match = line.match(/(?:^|\s{2})([A-Za-z0-9-]+):\s*(.*)$/);
@@ -343,7 +364,7 @@ function parseBody(lines) {
 
   for (let index = bodyStart + 1; index < lines.length; index += 1) {
     const line = lines[index];
-    if (/^={8,}$/.test(line.trim())) break;
+    if (isBlockSeparator(line)) break;
     bodyLines.push(line);
   }
 
@@ -351,15 +372,22 @@ function parseBody(lines) {
 }
 
 function normalizeEvent(event) {
-  const parsed = parseUrl(event.url);
+  const url = normalizeCaptureUrl(event.url);
+  const parsed = parseUrl(url);
   const errors = event.errors || [];
   return {
     ...event,
+    method: normalizeMethod(event.method) || "GET",
+    url,
     host: parsed.host,
     path: parsed.path || event.path || "(unknown endpoint)",
     state: errors.length ? "error" : event.state,
     errors
   };
+}
+
+function normalizeMethod(value) {
+  return normalizeHttpMethod(value, { fallback: "" });
 }
 
 function parseUrl(value) {
@@ -386,6 +414,10 @@ function appendRaw(current = [], next = []) {
 function truncate(value, maxLength) {
   if (!value || value.length <= maxLength) return value || "";
   return `${value.slice(0, maxLength - 1)}...`;
+}
+
+function isBlockSeparator(value) {
+  return /^={8,}(?:"[,]?)?$/.test(String(value || "").trim());
 }
 
 // Apple's unified log compact output escapes bytes outside the printable

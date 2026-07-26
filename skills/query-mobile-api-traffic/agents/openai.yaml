@@ -1,0 +1,11 @@
+interface:
+  display_name: "Query Mobile API Traffic"
+  short_description: "Query captured app API traffic precisely"
+  default_prompt: "Use $query-mobile-api-traffic to inspect the relevant captured API calls efficiently."
+
+dependencies:
+  tools:
+    - type: "mcp"
+      value: "mobile-api-console"
+      description: "Read-only access to captured mobile and browser API traffic"
+      transport: "stdio"

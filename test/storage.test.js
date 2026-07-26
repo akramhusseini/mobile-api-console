@@ -157,6 +157,18 @@ test("listSessions returns newest first", () => {
   });
 });
 
+test("listSessions supports paging through session history", () => {
+  withTempStorage((storage) => {
+    storage.createSession({ label: "first", startedAt: "2026-01-01T00:00:00.000Z" });
+    storage.createSession({ label: "second", startedAt: "2026-01-02T00:00:00.000Z" });
+    storage.createSession({ label: "third", startedAt: "2026-01-03T00:00:00.000Z" });
+
+    const page = storage.listSessions({ limit: 1, offset: 1 });
+    assert.equal(page.length, 1);
+    assert.equal(page[0].label, "second");
+  });
+});
+
 test("pruneSessionsBefore removes old sessions and cascades to events", () => {
   withTempStorage((storage) => {
     const cutoff = "2026-06-24T12:00:00.000Z";
@@ -251,5 +263,61 @@ test("saveEvent round-trips the optional meta blob", () => {
     });
     const fetched = storage.getEvent(session.id, "1");
     assert.deepEqual(fetched.meta, meta);
+  });
+});
+
+test("normalizes malformed multiline capture fields before storage", () => {
+  withTempStorage((storage) => {
+    const session = storage.createSession({ sourceKind: "ios-simulator" });
+    const suffix = "\\nMethod: GET\\nHeaders:\\n Authorization: Bearer storage-secret";
+    storage.saveEvent(session.id, {
+      id: "malformed-new",
+      method: `GET${suffix}`,
+      url: `https://api.example/v1/announcements/32${suffix}`,
+      host: "api.example",
+      path: `/v1/announcements/32${suffix}`,
+      request: { method: `GET${suffix}`, url: `https://api.example/v1/announcements/32${suffix}` }
+    });
+
+    const event = storage.getEvent(session.id, "malformed-new");
+    assert.equal(event.method, "GET");
+    assert.equal(event.url, "https://api.example/v1/announcements/32");
+    assert.equal(event.host, "api.example");
+    assert.equal(event.path, "/v1/announcements/32");
+    assert.equal(event.request.method, "GET");
+    assert.equal(event.request.url, "https://api.example/v1/announcements/32");
+  });
+});
+
+test("normalizes legacy malformed rows while hydrating without rewriting history", () => {
+  withTempStorage((storage) => {
+    const session = storage.createSession({ sourceKind: "ios-simulator" });
+    storage.saveEvent(session.id, { id: "legacy", method: "GET", url: "https://api.example/original" });
+    const suffix = "\\nHeaders:\\n Authorization: Bearer legacy-secret";
+    storage.db.prepare(`
+      UPDATE events
+      SET method = ?, url = ?, host = ?, path = ?, request_json = ?
+      WHERE session_id = ? AND client_event_id = ?
+    `).run(
+      `PUT${suffix}`,
+      `${String.raw`https:\/\/api.example/v1/announcements/50`}${suffix}`,
+      "api.example",
+      `/v1/announcements/50/nHeaders:%20Authorization${suffix}`,
+      JSON.stringify({ method: `PUT${suffix}`, url: `${String.raw`https:\/\/api.example/v1/announcements/50`}${suffix}` }),
+      session.id,
+      "legacy"
+    );
+
+    const event = storage.getEvent(session.id, "legacy");
+    assert.equal(event.method, "PUT");
+    assert.equal(event.url, "https://api.example/v1/announcements/50");
+    assert.equal(event.host, "api.example");
+    assert.equal(event.path, "/v1/announcements/50");
+    assert.equal(event.request.method, "PUT");
+    assert.ok(!JSON.stringify(event).includes("legacy-secret"));
+
+    const stored = storage.db.prepare("SELECT method FROM events WHERE session_id = ? AND client_event_id = ?")
+      .get(session.id, "legacy");
+    assert.ok(stored.method.includes("legacy-secret"), "read normalization must not mutate captured history");
   });
 });

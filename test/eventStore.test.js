@@ -73,6 +73,33 @@ test("recentSessions returns newest first", () => {
   });
 });
 
+test("recentSessions finds an older source beyond newer sessions from other sources", () => {
+  withStore(({ store }) => {
+    store.ensureSourceSession("browser-session", {
+      sourceKey: "browser",
+      sourceKind: "browser-chromium",
+      sourceMetadata: {
+        sourceKey: "browser",
+        browserSession: {
+          origin: "https://school.example",
+          profileId: "profile-1",
+          context: "regular"
+        }
+      }
+    });
+
+    for (let index = 0; index < 60; index += 1) {
+      const sourceKey = `newer-source-${index}`;
+      store.initSource(sourceKey, { sourceKind: sourceKey });
+    }
+
+    const browserSessions = store.recentSessions({ limit: 20, sourceKey: "browser" });
+    assert.equal(browserSessions.length, 1);
+    assert.equal(browserSessions[0].sourceKey, "browser");
+    assert.equal(browserSessions[0].label, "https://school.example (regular)");
+  });
+});
+
 test("protected live session survives retention and later upsert still works", () => {
   withStore(({ store, storage }) => {
     const currentId = store.currentSession().id;

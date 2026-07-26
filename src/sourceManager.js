@@ -25,6 +25,7 @@ class SourceManager extends EventEmitter {
     this.recorders = new Map();
     this.selectedSourceKey = null;
     this.browserParser = new BrowserEventParser();
+    this.lastSourcesFingerprint = null;
   }
 
   async detect() {
@@ -40,8 +41,16 @@ class SourceManager extends EventEmitter {
     if (!this.selectedSourceKey || !this.recorders.has(this.selectedSourceKey)) {
       this.selectSourceKey(this.resolveInitialSourceKey(), { emit: false });
     }
-    this.emit("changed", this.list());
-    return this.list();
+    const list = this.list();
+    // Only broadcast when the source set actually changed. Periodic re-probes
+    // call this often; live status text (e.g. browser lastSeen timestamps)
+    // changes nearly every probe and would rebuild the picker while open.
+    const fingerprint = sourcesFingerprint(list);
+    if (fingerprint !== this.lastSourcesFingerprint) {
+      this.lastSourcesFingerprint = fingerprint;
+      this.emit("changed", list);
+    }
+    return list;
   }
 
   // Compatibility helper for existing callers/tests. In the multi-source
@@ -88,7 +97,9 @@ class SourceManager extends EventEmitter {
     this.startMissingRecorders();
     const selected = this.resolveInitialSourceKey();
     if (selected) this.selectSourceKey(selected, { emit: false });
-    this.emit("changed", this.list());
+    const list = this.list();
+    this.lastSourcesFingerprint = sourcesFingerprint(list);
+    this.emit("changed", list);
   }
 
   startMissingRecorders() {
@@ -408,24 +419,32 @@ class SourceManager extends EventEmitter {
 
   kindToSessionMetadata(kind, opts = {}) {
     if (kind === "ios") {
+      const booted = this.detection.ios?.booted || [];
+      const selectedDevice = booted.find((device) => device.udid === this.config.ios.simulator)
+        || (this.config.ios.simulator === "booted" && booted.length === 1 ? booted[0] : null);
       return {
         sourceKind: "ios-simulator",
         sourceMetadata: {
           sourceKey: sourceKeyFor(kind, opts),
           simulator: this.config.ios.simulator,
+          deviceName: selectedDevice?.name || null,
+          udid: selectedDevice?.udid || null,
           predicate: this.config.ios.predicate,
           processName: this.config.ios.processName
         }
       };
     }
     if (kind === "android") {
+      const selectedDevice = (this.detection.android?.devices || [])
+        .find((device) => device.serial === opts.deviceSerial);
       return {
         sourceKind: opts.deviceSerial ? "android-device" : "android-emulator",
         sourceMetadata: {
           sourceKey: sourceKeyFor(kind, opts),
           applicationId: this.config.android.applicationId,
           logTag: this.config.android.logTag,
-          deviceSerial: opts.deviceSerial || null
+          deviceSerial: opts.deviceSerial || null,
+          deviceName: selectedDevice?.label || null
         }
       };
     }
@@ -663,6 +682,17 @@ function kindFromSourceKey(sourceKey) {
   return sourceKey;
 }
 
+// Fingerprint only the parts of the source list that should trigger a UI
+// refresh when they change: which sources exist, their labels, the current
+// selection, and whether they are running. Live status payloads are excluded
+// on purpose — they already stream to clients via "source-status" events.
+function sourcesFingerprint(list) {
+  const selectable = (list.selectable || [])
+    .map((entry) => `${entry.sourceKey}|${entry.label}|${entry.running ? 1 : 0}`)
+    .join(";");
+  return `${list.selectedSourceKey || ""}#${selectable}`;
+}
+
 function uniqueDefinitions(definitions) {
   const seen = new Set();
   const unique = [];
@@ -674,4 +704,4 @@ function uniqueDefinitions(definitions) {
   return unique;
 }
 
-module.exports = { SourceManager, sourceKeyFor, kindFromSourceKey };
+module.exports = { SourceManager, sourceKeyFor, kindFromSourceKey, sourcesFingerprint };

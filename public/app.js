@@ -1,5 +1,10 @@
 "use strict";
 
+const HEARTBEAT_VISIBILITY_STORAGE_KEY = "mobileApiConsole.hideHeartbeats";
+const LIVE_EVENT_SETTLE_DELAY_MS = 180;
+const deferredEventIds = new Set();
+const eventRevealTimers = new Map();
+
 const state = {
   events: [],
   sessions: [],
@@ -9,7 +14,8 @@ const state = {
   activeTab: "preview",
   source: null,
   sources: null,
-  config: null
+  config: null,
+  hideHeartbeats: true
 };
 
 const els = {
@@ -26,6 +32,7 @@ const els = {
   searchInput: document.getElementById("searchInput"),
   stateFilter: document.getElementById("stateFilter"),
   methodFilter: document.getElementById("methodFilter"),
+  toggleHeartbeatButton: document.getElementById("toggleHeartbeatButton"),
   autoSelectToggle: document.getElementById("autoSelectToggle"),
   sessionPicker: document.getElementById("sessionPicker"),
   countText: document.getElementById("countText"),
@@ -62,6 +69,7 @@ const browserSetupRequested = new URLSearchParams(window.location.search).get("b
 let browserSetupAutoOpened = false;
 
 loadLayoutState();
+loadHeartbeatVisibility();
 bindLayout();
 connectEvents();
 bindUi();
@@ -70,6 +78,23 @@ function bindUi() {
   els.searchInput.addEventListener("input", render);
   els.stateFilter.addEventListener("change", render);
   els.methodFilter.addEventListener("change", render);
+
+  if (els.toggleHeartbeatButton) {
+    updateHeartbeatButton();
+    els.toggleHeartbeatButton.addEventListener("click", () => {
+      state.hideHeartbeats = !state.hideHeartbeats;
+      saveHeartbeatVisibility();
+      updateHeartbeatButton();
+      render();
+    });
+  }
+
+  els.autoSelectToggle.addEventListener("change", () => {
+    if (els.autoSelectToggle.checked) {
+      state.selectedId = filteredEvents()[0]?.id || null;
+    }
+    render();
+  });
 
   els.clearButton.addEventListener("click", async () => {
     const body = {};
@@ -520,6 +545,33 @@ function loadLayoutState() {
   els.toggleListButton.setAttribute("aria-label", els.toggleListButton.title);
 }
 
+function loadHeartbeatVisibility() {
+  try {
+    const stored = localStorage.getItem(HEARTBEAT_VISIBILITY_STORAGE_KEY);
+    state.hideHeartbeats = stored === null ? true : stored === "true";
+  } catch {
+    state.hideHeartbeats = true;
+  }
+}
+
+function saveHeartbeatVisibility() {
+  try {
+    localStorage.setItem(HEARTBEAT_VISIBILITY_STORAGE_KEY, String(state.hideHeartbeats));
+  } catch {
+    // Keep the in-memory preference when storage is unavailable.
+  }
+}
+
+function updateHeartbeatButton() {
+  if (!els.toggleHeartbeatButton) return;
+  const hidden = state.hideHeartbeats;
+  const action = hidden ? "Show heartbeats" : "Hide heartbeats";
+  els.toggleHeartbeatButton.textContent = action;
+  els.toggleHeartbeatButton.title = action;
+  els.toggleHeartbeatButton.setAttribute("aria-label", action);
+  els.toggleHeartbeatButton.setAttribute("aria-pressed", String(!hidden));
+}
+
 async function flashCopy(button, text) {
   await navigator.clipboard.writeText(text);
   const original = button.textContent;
@@ -549,12 +601,18 @@ function connectEvents() {
     if (state.activeSessionId !== state.currentSessionId) return;
     if (event.sessionId && event.sessionId !== state.activeSessionId) return;
     const index = state.events.findIndex((item) => item.id === event.id);
+    const isNewEvent = index < 0;
+    const isWaitingForReveal = deferredEventIds.has(event.id);
     if (index >= 0) state.events[index] = event;
     else state.events.unshift(event);
     trimEventsToCap();
     bumpSessionCount(event.sessionId);
     sortEvents();
-    selectLatestIfNeeded(event.id);
+    if (isNewEvent || isWaitingForReveal) {
+      scheduleLiveEventReveal(event);
+    } else {
+      selectLatestIfNeeded(event.id);
+    }
     render();
   });
 
@@ -575,6 +633,7 @@ function connectEvents() {
     }
 
     if (wasOnLive) {
+      clearDeferredEventReveals();
       state.activeSessionId = session.id;
       state.events = [];
       state.selectedId = null;
@@ -607,7 +666,9 @@ function connectEvents() {
 }
 
 function applySnapshotPayload(payload) {
+  clearDeferredEventReveals();
   state.events = payload.events || [];
+  trackPendingEventReveals();
   state.sessions = payload.sessions || [];
   state.currentSessionId = payload.currentSession ? payload.currentSession.id : null;
   state.activeSessionId = state.currentSessionId;
@@ -646,9 +707,61 @@ function selectLatestIfNeeded(newId) {
     return;
   }
 
-  if (!state.selectedId && state.events.length) {
-    state.selectedId = state.events[0].id;
+  if (!state.selectedId) {
+    state.selectedId = baseVisibleEvents()[0]?.id || null;
   }
+}
+
+function scheduleLiveEventReveal(event) {
+  const existing = eventRevealTimers.get(event.id);
+  if (existing?.timer) clearTimeout(existing.timer);
+
+  deferredEventIds.add(event.id);
+  if (!hasTerminalEventData(event)) {
+    eventRevealTimers.set(event.id, { timer: null });
+    if (!state.hideHeartbeats || !isHeartbeatEvent(event)) {
+      selectLatestIfNeeded(event.id);
+    }
+    return;
+  }
+
+  const timer = setTimeout(() => {
+    deferredEventIds.delete(event.id);
+    eventRevealTimers.delete(event.id);
+    if (!state.hideHeartbeats || !isHeartbeatEvent(event)) {
+      selectLatestIfNeeded(event.id);
+    }
+    render();
+  }, LIVE_EVENT_SETTLE_DELAY_MS);
+
+  eventRevealTimers.set(event.id, { timer });
+}
+
+function hasTerminalEventData(event) {
+  return event?.state === "success"
+    || event?.state === "error"
+    || Boolean(event?.response)
+    || (Array.isArray(event?.errors) && event.errors.length > 0);
+}
+
+function clearDeferredEventReveals() {
+  for (const entry of eventRevealTimers.values()) {
+    if (entry.timer) clearTimeout(entry.timer);
+  }
+  eventRevealTimers.clear();
+  deferredEventIds.clear();
+}
+
+function trackPendingEventReveals() {
+  for (const event of state.events) {
+    if (hasTerminalEventData(event)) continue;
+    deferredEventIds.add(event.id);
+    eventRevealTimers.set(event.id, { timer: null });
+  }
+}
+
+function isEventSettling(event) {
+  return deferredEventIds.has(event.id) || !hasTerminalEventData(event);
 }
 
 function sortEvents() {
@@ -775,8 +888,10 @@ async function switchToSession(id) {
   const response = await fetch(`/api/sessions/${id}/events`);
   if (!response.ok) return;
   const payload = await response.json();
+  clearDeferredEventReveals();
   state.activeSessionId = id;
   state.events = payload.events || [];
+  trackPendingEventReveals();
   trimEventsToCap();
   state.selectedId = null;
   const replaced = state.sessions.findIndex((s) => s.id === payload.session.id);
@@ -834,7 +949,7 @@ function renderSource() {
 
 function renderMethodFilter() {
   const current = els.methodFilter.value;
-  const methods = [...new Set(state.events.map((event) => event.method).filter(Boolean))].sort();
+  const methods = [...new Set(baseVisibleEvents().map((event) => event.method).filter(Boolean))].sort();
   const options = ["all", ...methods];
   els.methodFilter.innerHTML = options.map((method) => {
     const label = method === "all" ? "All methods" : method;
@@ -843,12 +958,24 @@ function renderMethodFilter() {
   els.methodFilter.value = options.includes(current) ? current : "all";
 }
 
+function baseVisibleEvents() {
+  return state.events.filter((event) => {
+    return !state.hideHeartbeats || !isHeartbeatEvent(event);
+  });
+}
+
+function isHeartbeatEvent(event) {
+  const rawPath = String(event?.path || event?.url || "");
+  const pathWithoutQuery = rawPath.split("?", 1)[0].replace(/\/+$/, "");
+  return pathWithoutQuery.endsWith("/online/heartbeat");
+}
+
 function filteredEvents() {
   const query = els.searchInput.value.trim().toLowerCase();
   const stateFilter = els.stateFilter.value;
   const methodFilter = els.methodFilter.value;
 
-  return state.events.filter((event) => {
+  return baseVisibleEvents().filter((event) => {
     if (stateFilter !== "all" && event.state !== stateFilter) return false;
     if (methodFilter !== "all" && event.method !== methodFilter) return false;
     if (!query) return true;
@@ -859,7 +986,8 @@ function filteredEvents() {
 function renderList() {
   const events = filteredEvents();
   els.countText.textContent = `${events.length} ${events.length === 1 ? "call" : "calls"}`;
-  els.lastUpdateText.textContent = state.events[0] ? relativeTime(state.events[0].updatedAt) : "Waiting";
+  const latestVisibleEvent = baseVisibleEvents()[0];
+  els.lastUpdateText.textContent = latestVisibleEvent ? relativeTime(latestVisibleEvent.updatedAt) : "Waiting";
 
   if (!events.find((event) => event.id === state.selectedId)) {
     state.selectedId = events[0] ? events[0].id : null;
@@ -867,18 +995,24 @@ function renderList() {
 
   els.requestList.innerHTML = events.map((event) => {
     const active = event.id === state.selectedId ? "active" : "";
+    const settling = isEventSettling(event);
+    const settlingClass = settling ? "settling" : "";
     const statusClass = statusClassName(event);
     const statusText = event.statusCode || event.state || "pending";
     const listStatusText = abbreviateListStatus(event, statusText);
     const rawPath = event.path || "(unknown endpoint)";
     const captureModeAttr = event?.meta?.captureMode ? ` data-capture-mode="${escapeHtml(event.meta.captureMode)}"` : "";
     return `
-      <button class="request-row ${active} ${statusClass}" data-id="${escapeHtml(event.id)}" title="${escapeHtml(rawPath)}"${captureModeAttr}>
+      <button class="request-row ${active} ${statusClass} ${settlingClass}" data-id="${escapeHtml(event.id)}" title="${escapeHtml(rawPath)}"${captureModeAttr}>
         <span class="method-badge ${methodClassName(event)}">${escapeHtml(event.method || "GET")}</span>
-        <span class="status-pill ${statusClass}">${escapeHtml(listStatusText)}</span>
+        ${settling
+          ? '<span class="row-loading-indicator" aria-label="Response is being processed"></span>'
+          : `<span class="status-pill ${statusClass}">${escapeHtml(listStatusText)}</span>`}
         <span class="row-main">
           <span class="row-path">${escapeHtml(decodeForDisplay(rawPath))}</span>
-          <span class="row-host">${escapeHtml(event.host || "")}</span>
+          ${settling
+            ? '<span class="row-loading-shimmer" aria-hidden="true"></span>'
+            : `<span class="row-host">${escapeHtml(event.host || "")}</span>`}
         </span>
         <span class="row-time">${escapeHtml(relativeTime(event.updatedAt))}</span>
       </button>
@@ -887,6 +1021,9 @@ function renderList() {
 
   els.requestList.querySelectorAll(".request-row").forEach((row) => {
     row.addEventListener("click", () => {
+      // Manual inspection is sticky. Incoming calls cannot replace the user's
+      // selection until they explicitly turn Follow latest back on.
+      els.autoSelectToggle.checked = false;
       state.selectedId = row.dataset.id;
       render();
     });
@@ -907,13 +1044,21 @@ function renderDetail() {
   els.detailTitle.title = rawTitle;
   els.detailMethod.textContent = event.method || "GET";
   els.detailMethod.className = `method-badge ${methodClassName(event)}`;
-  els.detailStatus.textContent = event.statusCode || event.state || "pending";
-  els.detailStatus.className = `status-badge ${statusClassName(event)}`;
+  const settling = isEventSettling(event);
+  els.detailStatus.textContent = settling ? "Processing…" : (event.statusCode || event.state || "pending");
+  els.detailStatus.className = `status-badge ${settling ? "pending" : statusClassName(event)}`;
 
   const fullUrl = (event.response && event.response.url) || event.url || "";
   els.detailUrl.textContent = fullUrl;
   els.detailUrl.title = fullUrl;
   els.detailUrl.hidden = !fullUrl;
+
+  if (settling) {
+    els.detailSize.hidden = true;
+    els.detailSize.textContent = "";
+    renderProcessingDetail();
+    return;
+  }
 
   const size = responseBodySize(event);
   if (size === null) {
@@ -926,6 +1071,17 @@ function renderDetail() {
   }
 
   renderTabContent(event);
+}
+
+function renderProcessingDetail() {
+  els.detailBody.innerHTML = `
+    <div class="response-processing" role="status" aria-live="polite">
+      <span class="response-processing-spinner" aria-hidden="true"></span>
+      <span>Retrieving response…</span>
+      <span class="response-processing-shimmer" aria-hidden="true"></span>
+      <span class="response-processing-shimmer short" aria-hidden="true"></span>
+    </div>
+  `;
 }
 
 function browserHostLine(event) {

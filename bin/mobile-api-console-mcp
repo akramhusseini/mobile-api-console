@@ -1,0 +1,6 @@
+#!/usr/bin/env node
+
+require("../src/mcp/server").main().catch((error) => {
+  process.stderr.write(`mobile-api-console MCP failed: ${error.message}\n`);
+  process.exit(1);
+});

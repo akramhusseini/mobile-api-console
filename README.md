@@ -8,16 +8,18 @@ a clean, copy-friendly view of what the app is actually sending and receiving,
 without scrolling through Xcode or Android Studio's console.
 
 The web app is a small Node server plus a plain browser UI. There is no
-Electron wrapper and no frontend build step. The only runtime package is
-`better-sqlite3`, so run `npm install` once before starting the console.
+Electron wrapper and no frontend build step. Runtime packages provide SQLite
+storage and the optional local MCP interface, so run `npm install` once before
+starting the console.
 
 ## Features
 
 - Live stream from available sources: the booted iOS Simulator, attached
   Android emulator/device, a Chromium-family browser via the bundled
-  extension, or demo mode. Sources are auto-detected on startup; when
-  multiple are available, all record continuously and the header dropdown
-  selects which platform history to view. Browser capture surfaces
+  extension, or demo mode. Sources are auto-detected on startup and
+  re-probed every 15 seconds, so a simulator booted later shows up on its
+  own; when multiple are available, all record continuously and the header
+  dropdown selects which platform history to view. Browser capture surfaces
   multiple live sessions per (origin, browser profile, regular/incognito).
 - Per-call view: status, method, and full URL are pinned in the detail
   header, with tabs for Preview (interactive JSON tree with type-aware
@@ -48,9 +50,15 @@ Electron wrapper and no frontend build step. The only runtime package is
   always available at `http://localhost:3957`.
 - Per-developer config via `~/.mobile-api-console.json` so real bundle ids,
   Logcat tags, and device serials never get committed to the repo.
+- Read-only local MCP server for efficient Codex and Claude queries by day,
+  platform, simulator/device/browser profile, session, endpoint, method,
+  status, or full text. Compact search results and opt-in payload details keep
+  agent context small; common secrets are always redacted.
 
 ## Documentation
 
+- [MCP server for Codex and Claude](docs/MCP_SERVER.md) - query captured
+  traffic over local stdio without exposing SQLite or a network port.
 - [Operations and storage](docs/OPERATIONS.md) - database location, service
   logs, cleanup notes, and retention controls.
 - [Browser setup (Chromium extension)](docs/BROWSER_SETUP.md) - install the

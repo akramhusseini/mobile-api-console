@@ -175,9 +175,9 @@ during implementation unless the wire format is intentionally bumped.
 
 ## Current status / handoff (2026-06-30)
 
-Phase 1 capture works end-to-end on a real app (Acme LMS: frontend
-`app.example.com`, cross-origin API
-`api.example.com`) — verified live: a real cross-origin API
+Phase 1 capture works end-to-end on a real LMS SPA (frontend
+`app.example.com`, cross-origin API `api.example.com`) — verified live: a
+real cross-origin API
 call landed with full request/response bodies, `captureMode: merged`.
 
 ### Shipped since the core capture work
@@ -209,7 +209,7 @@ simple setup flow enables Browser source before extension traffic arrives.
    simplicity. Open **Set up Browser** first so the console enables Browser
    source, re-load unpacked, click **Capture this site** on the LMS, and
    confirm (a) a NEW browser session id appears, (b) the view is clean (no
-   `localhost` / `/assets/*.js` rows), (c) the popup lists `api-example…`
+   `localhost` / `/assets/*.js` rows), (c) the popup lists the API host
    under "API hosts seen" with a working **Add headers** button. The native
    permission **Allow** click is an OS prompt nothing in CDP can drive.
 2. Nothing else outstanding. README now points at the one-click flow first;

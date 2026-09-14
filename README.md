@@ -330,19 +330,37 @@ Important constraints:
 
 The console accepts two wire formats:
 
-**iOS** emits four block markers under your chosen `subsystem` + `category`:
+**iOS** emits five block markers under your chosen `subsystem` + `category`:
 
 ```text
 ===== REQUEST =====
 ===== MULTIPART REQUEST =====
 ===== CURL COMMAND =====
 ===== RESPONSE =====
+===== PUSH EVENT =====
 ```
 
 Each block is one `Logger.debug(...)` call with the lines joined by `\n`.
 Block ends at the next block header or a line of `=` (length ≥ 8). Inside a
 block the parser reads `URL:`, `Method:`, `Status Code:`, `Headers:` (followed
 by `  key: value` indented lines), and `Body:`.
+
+`PUSH EVENT` is for realtime traffic the app *receives* (a Pusher / websocket
+event) rather than HTTP it sends. It reads `Channel:`, `Event:` and `Data:`
+(payload up to the separator) and stores one complete event with
+`kind: "push"`, method `PUSH`, URL `pusher://<channel>/<event>` and the payload
+as the response body — so it shows in the UI and `search_api_calls`
+(`methods: ["PUSH"]`) without any schema change. iOS only; there is no Android
+or browser equivalent.
+
+```text
+===== PUSH EVENT =====
+Channel: private-App.Models.User.92
+Event: notification.new
+Data:
+{"type":"assessment_published","id":196}
+====================
+```
 
 Android emits one tag (`API_CURL` by default) with three line shapes per
 request:

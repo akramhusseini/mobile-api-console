@@ -236,3 +236,61 @@ test("extracts oslog lines from compact log text", () => {
   const finalEvent = actions.filter((action) => action.type === "upsert").at(-1).event;
   assert.equal(finalEvent.response.body, "{\n  \"ok\": true\n}");
 });
+
+test("turns a push event block into a complete PUSH event with the payload as its body", () => {
+  const parser = new MobileNetworkParser();
+  const actions = collect(parser, [
+    "===== PUSH EVENT =====",
+    "Channel: private-App.Models.User.92",
+    "Event: notification.new",
+    "Data:",
+    "{\"type\":\"assessment_published\",\"id\":196,",
+    "\"title\":\"android math\"}",
+    "===================="
+  ]);
+
+  const upserts = actions.filter((action) => action.type === "upsert");
+  assert.equal(upserts.length, 1);
+  const event = upserts[0].event;
+
+  assert.equal(event.kind, "push");
+  assert.equal(event.method, "PUSH");
+  assert.equal(event.state, "success");
+  assert.equal(event.statusCode, null);
+  assert.equal(event.url, "pusher://private-App.Models.User.92/notification.new");
+  assert.equal(event.host, "private-App.Models.User.92");
+  assert.equal(event.path, "/notification.new");
+  assert.equal(event.request, null);
+  assert.equal(
+    event.response.body,
+    "{\"type\":\"assessment_published\",\"id\":196,\n\"title\":\"android math\"}"
+  );
+});
+
+test("a push event never captures the next HTTP response", () => {
+  const parser = new MobileNetworkParser();
+  const actions = collect(parser, [
+    "===== PUSH EVENT =====",
+    "Channel: c",
+    "Event: e",
+    "Data:",
+    "{}",
+    "====================",
+    "===== RESPONSE =====",
+    "Status Code: 200",
+    "URL: https://example.com/api/v1/profile",
+    "Body:",
+    "{}",
+    "======================"
+  ]);
+
+  const events = actions.filter((action) => action.type === "upsert").map((action) => action.event);
+  const push = events.find((event) => event.kind === "push");
+  const http = events.find((event) => event.kind !== "push");
+
+  assert.equal(push.response.body, "{}");
+  assert.equal(push.statusCode, null);
+  assert.equal(http.statusCode, 200);
+  assert.notEqual(push.id, http.id);
+});
+

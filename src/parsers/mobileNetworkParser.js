@@ -101,6 +101,11 @@ class MobileNetworkParser {
       return [this.attachResponse(response)];
     }
 
+    if (block.kind === "push") {
+      const push = parsePushBlock(block.lines, block.raw);
+      return [this.createPushEvent(push)];
+    }
+
     return [];
   }
 
@@ -113,6 +118,7 @@ class MobileNetworkParser {
     if (line.includes("===== REQUEST =====")) return "request";
     if (line.includes("===== CURL COMMAND =====")) return "curl";
     if (line.includes("===== RESPONSE =====")) return "response";
+    if (line.includes("===== PUSH EVENT =====")) return "push";
     return "";
   }
 
@@ -160,6 +166,10 @@ class MobileNetworkParser {
       "===== REQUEST =====",
       "===== CURL COMMAND =====",
       "===== RESPONSE =====",
+      "===== PUSH EVENT =====",
+      "Channel:",
+      "Event:",
+      "Data:",
       "Status Code:",
       "URL:",
       "Method:",
@@ -197,6 +207,39 @@ class MobileNetworkParser {
 
     this.events.set(event.id, event);
     this.pending.push(event.id);
+    return { type: "upsert", event };
+  }
+
+  // A realtime (Pusher) event the iOS app received. It is complete the
+  // moment it is logged, so it never joins the pending queue: nothing will
+  // attach a response to it. The payload sits where a response body would,
+  // because that is what "arrived", and `kind: "push"` keeps it apart from
+  // HTTP traffic for anyone filtering.
+  createPushEvent(push) {
+    const now = new Date().toISOString();
+    const event = normalizeEvent({
+      id: `api-${this.nextId++}`,
+      kind: "push",
+      createdAt: now,
+      updatedAt: now,
+      state: "success",
+      method: "PUSH",
+      url: push.url,
+      request: null,
+      response: {
+        statusCode: null,
+        url: push.url,
+        headers: {},
+        body: push.data,
+        raw: push.raw
+      },
+      curl: "",
+      statusCode: null,
+      errors: [],
+      raw: push.raw
+    });
+
+    this.events.set(event.id, event);
     return { type: "upsert", event };
   }
 
@@ -321,6 +364,22 @@ function parseCurlBlock(lines, raw) {
   };
 }
 
+// `===== PUSH EVENT =====` / `Channel: <name>` / `Event: <name>` / `Data:`
+// followed by the payload up to the separator. Channel and event become a
+// `pusher://<channel>/<event>` URL so the existing host/path columns, the
+// endpoint filter and full-text search all work on it unchanged.
+function parsePushBlock(lines, raw) {
+  const channel = findField(lines, "Channel") || "unknown";
+  const eventName = findField(lines, "Event") || "unknown";
+  return {
+    channel,
+    eventName,
+    url: `pusher://${channel}/${eventName}`,
+    data: parseSection(lines, "Data:"),
+    raw
+  };
+}
+
 function findField(lines, label) {
   const prefix = `${label}:`;
   for (const line of lines) {
@@ -355,11 +414,15 @@ function parseHeaders(lines) {
 }
 
 function parseBody(lines) {
-  const bodyStart = lines.findIndex((line) => line.includes("Body:"));
+  return parseSection(lines, "Body:");
+}
+
+function parseSection(lines, marker) {
+  const bodyStart = lines.findIndex((line) => line.includes(marker));
   if (bodyStart < 0) return "";
 
   const firstLine = lines[bodyStart];
-  const inline = firstLine.slice(firstLine.indexOf("Body:") + "Body:".length).trim();
+  const inline = firstLine.slice(firstLine.indexOf(marker) + marker.length).trim();
   const bodyLines = inline ? [inline] : [];
 
   for (let index = bodyStart + 1; index < lines.length; index += 1) {

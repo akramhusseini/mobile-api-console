@@ -115,3 +115,31 @@ test("buildAndAuthorize propagates permission denial with detail", async () => {
   assert.equal(result.error, "permission_denied");
   assert.equal(result.detail, "user cancelled");
 });
+
+
+test("console defaults add staging while preserving saved dev and other sites", async () => {
+  const { mergeConsoleDefaults } = require("../extension/options-helper");
+  const config = {
+    consoleHost: "http://localhost:3957",
+    targetUrls: ["https://nexa-lms-dev.joacademy.co/*", "http://localhost:3000/*"],
+    requestUrls: ["https://nexa-lms-api-dev.joacademy.co/*"]
+  };
+  const defaults = { browser: {
+    targetUrls: ["https://nexa-lms-dev.joacademy.co/*", "https://stg-school.joacademy.tech/*"],
+    requestUrls: ["https://nexa-lms-api-dev.joacademy.co/*", "https://nexa-lms-api-preprod.joacademy.co/*"]
+  } };
+  const merged = mergeConsoleDefaults(config, defaults);
+  assert.deepEqual(merged.targetUrls, [...config.targetUrls, defaults.browser.targetUrls[1]]);
+  assert.deepEqual(merged.requestUrls, [...config.requestUrls, defaults.browser.requestUrls[1]]);
+  assert.equal(config.targetUrls.length, 2, "stored config must not be mutated");
+  assert.deepEqual(mergeConsoleDefaults(merged, defaults), merged, "refresh must not duplicate patterns");
+  assert.deepEqual(mergeConsoleDefaults(merged, { browser: { targetUrls: [], requestUrls: [] } }), merged);
+  assert.equal(mergeConsoleDefaults(config, null), config, "offline console keeps existing sites");
+  const calls = [];
+  const result = await buildAndAuthorize({ ...merged,
+    targetUrls: merged.targetUrls.join("\n"), requestUrls: merged.requestUrls.join("\n")
+  }, { permissions: { request: (request) => { calls.push(request); return Promise.resolve(true); } } });
+  assert.equal(result.ok, true);
+  assert.equal(calls.length, 1);
+  assert.deepEqual(calls[0].origins, [...merged.targetUrls, ...merged.requestUrls]);
+});

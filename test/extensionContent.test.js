@@ -164,3 +164,20 @@ test("content script leaves page patch loading to the manifest MAIN-world script
 
   assert.equal(harness.appendedScripts.length, 0);
 });
+
+
+test("dev and staging tabs both forward preprod or dev requests; other sites stay excluded", () => {
+  const config = { targetUrls: [
+    "https://nexa-lms-dev.joacademy.co/*", "https://stg-school.joacademy.tech/*"
+  ], requestUrls: [
+    "https://nexa-lms-api-dev.joacademy.co/*", "https://nexa-lms-api-preprod.joacademy.co/*"
+  ] };
+  for (const href of ["https://nexa-lms-dev.joacademy.co/dashboard", "https://stg-school.joacademy.tech/dashboard", "https://unrelated.example/dashboard"]) {
+    const harness = loadContentScript({ href });
+    harness.resolveConfig(config);
+    for (const url of ["https://nexa-lms-api-dev.joacademy.co/api/v1/users", "https://nexa-lms-api-preprod.joacademy.co/api/v1/users"]) {
+      harness.dispatchObservation({ eventId: url, pageUrl: href, request: { url } });
+    }
+    assert.equal(harness.sentMessages.length, href.includes("unrelated") ? 0 : 2);
+  }
+});

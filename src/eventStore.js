@@ -79,7 +79,12 @@ class EventStore extends EventEmitter {
     if (isBrowserSourceKind(sourceKind) && !this.sources.has(sourceKey)) {
       this.registerUmbrellaSource(sourceKey, { sourceKind, sourceMetadata });
     }
-    return this.initSource(sourceKey, { sourceKind, sourceMetadata, sessionKey });
+    const session = this.initSource(sourceKey, { sourceKind, sourceMetadata, sessionKey });
+    // A new browser origin/profile creates a child session lazily on its
+    // first request. Announce it before the request upsert so connected
+    // dashboards add it to their picker and can follow its live events.
+    this.emit("session-start", { sourceKey, sessionKey, session, reason: "source-session-created" });
+    return session;
   }
 
   hasSourceSession(sessionKey) {

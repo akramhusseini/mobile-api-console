@@ -21,6 +21,19 @@
       .filter(Boolean);
   }
 
+  // Server defaults can add another environment without replacing sites
+  // already authorized in this browser profile. Save still requests all
+  // permissions synchronously from the user's click.
+  function mergeConsoleDefaults(config, defaults) {
+    if (!defaults || !defaults.browser) return config;
+    return {
+      ...config,
+      consoleHost: defaults.consoleHost || config.consoleHost,
+      targetUrls: [...new Set([...(config.targetUrls || []), ...(defaults.browser.targetUrls || [])])],
+      requestUrls: [...new Set([...(config.requestUrls || []), ...(defaults.browser.requestUrls || [])])]
+    };
+  }
+
   function toMatchPatterns(lines) {
     const out = [];
     for (const line of lines) {
@@ -159,6 +172,7 @@
   }
 
   const api = {
+    mergeConsoleDefaults,
     splitLines,
     toMatchPatterns,
     requestHostPermissions,

@@ -321,3 +321,20 @@ test("normalizes legacy malformed rows while hydrating without rewriting history
     assert.ok(stored.method.includes("legacy-secret"), "read normalization must not mutate captured history");
   });
 });
+
+
+test("late request phase preserves finished browser state and capture details", () => {
+  withTempStorage((storage) => {
+    const session = storage.createSession({ sourceKind: "browser-chromium" });
+    storage.saveEvent(session.id, { id: "late", state: "error", statusCode: 503,
+      response: { body: "unavailable" }, errors: ["HTTP 503"], raw: ["complete"], meta: { captureMode: "merged" } });
+    storage.saveEvent(session.id, { id: "late", state: "pending", request: { method: "POST" },
+      errors: [], raw: ["request"], meta: { captureMode: "page-script" } });
+    const event = storage.listEvents({ sessionId: session.id })[0];
+    assert.equal(event.state, "error");
+    assert.equal(event.response.body, "unavailable");
+    assert.deepEqual(event.errors, ["HTTP 503"]);
+    assert.deepEqual(event.raw, ["complete"]);
+    assert.equal(event.meta.captureMode, "merged");
+  });
+});

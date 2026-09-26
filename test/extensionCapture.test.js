@@ -797,3 +797,171 @@ test("webRequest: untyped events (older fixtures) still pass — backward compat
   });
   assert.equal(result, true);
 });
+
+// ---- requestBody capture (webRequest onBeforeRequest extraInfoSpec) ----
+//
+// The page-script patch reads only `init.body`, so a caller doing
+// `fetch(new Request(url, { body }))` reaches it with no body at all.
+// These cover the browser-level fallback that fills that gap.
+
+function rawBody(text) {
+  const bytes = new TextEncoder().encode(text);
+  return { raw: [{ bytes: bytes.buffer }] };
+}
+
+test("webRequest-only fallback decodes a raw JSON request body", async () => {
+  const posts = [];
+  let pendingResolver;
+  const postGate = new Promise((resolve) => { pendingResolver = resolve; });
+  const controller = createCaptureController({
+    getConfig: async () => ({}),
+    getProfileId: async () => "bprof_body",
+    postEvent: async (event) => { posts.push(event); pendingResolver(); }
+  });
+
+  const payload = '{"name":"section test","questions":[{"view_mode":"group","id":5}]}';
+  controller.attachWebRequestObservation(
+    {
+      tabId: 21,
+      requestId: "7001",
+      method: "POST",
+      url: "https://api.example.com/v1/assessments",
+      statusCode: 201,
+      timeStamp: 5000,
+      documentUrl: "https://app.example.com/page",
+      initiator: "https://app.example.com",
+      requestBody: rawBody(payload),
+      incognito: false
+    },
+    { partial: false }
+  );
+
+  await postGate;
+  const fallback = posts[0];
+  assert.equal(fallback.request.body, payload, "raw bytes must decode to the original JSON");
+  assert.equal(fallback.request.bodyAvailable, true);
+  assert.equal(fallback.request.bodyUnavailableReason, null);
+});
+
+test("webRequest formData bodies are captured as a JSON map", async () => {
+  const posts = [];
+  let pendingResolver;
+  const postGate = new Promise((resolve) => { pendingResolver = resolve; });
+  const controller = createCaptureController({
+    getConfig: async () => ({}),
+    getProfileId: async () => "bprof_form",
+    postEvent: async (event) => { posts.push(event); pendingResolver(); }
+  });
+
+  controller.attachWebRequestObservation(
+    {
+      tabId: 22,
+      requestId: "7002",
+      method: "POST",
+      url: "https://api.example.com/v1/login",
+      statusCode: 200,
+      timeStamp: 5000,
+      documentUrl: "https://app.example.com/page",
+      initiator: "https://app.example.com",
+      requestBody: { formData: { email: ["a@b.c"] } },
+      incognito: false
+    },
+    { partial: false }
+  );
+
+  await postGate;
+  assert.equal(posts[0].request.body, '{"email":["a@b.c"]}');
+  assert.equal(posts[0].request.bodyAvailable, true);
+});
+
+test("a page-script observation with no body does not erase a webRequest-decoded body", async () => {
+  const posts = [];
+  const controller = createCaptureController({
+    getConfig: async () => ({}),
+    getProfileId: async () => "bprof_merge",
+    postEvent: async (event) => { posts.push(event); }
+  });
+
+  const payload = '{"description":"edited"}';
+
+  // webRequest sees the payload first (onBeforeRequest fires before the
+  // page-script request phase in this ordering).
+  controller.attachWebRequestObservation(
+    {
+      tabId: 31,
+      requestId: "7003",
+      method: "POST",
+      url: "https://api.example.com/v1/assessments",
+      statusCode: 201,
+      timeStamp: 100,
+      documentUrl: "https://app.example.com/page",
+      initiator: "https://app.example.com",
+      requestBody: rawBody(payload),
+      incognito: false
+    },
+    { partial: true }
+  );
+
+  // The page script then reports the same call with body: null — the
+  // `fetch(new Request(...))` blind spot.
+  await controller.handlePageScriptObservation(
+    {
+      eventId: "page-uuid-body",
+      phase: "complete",
+      request: { startedAt: 100, method: "POST", url: "https://api.example.com/v1/assessments", headers: {}, body: null, bodyAvailable: true, bodyTruncated: false, bodyUnavailableReason: null },
+      response: { completedAt: 150, durationMs: 50, status: 201, headers: {}, body: '{"id":158}', bodyAvailable: true, bodyTruncated: false, bodyUnavailableReason: null },
+      pageUrl: "https://app.example.com/page"
+    },
+    { tab: { id: 31 }, url: "https://app.example.com/page", incognito: false }
+  );
+
+  // The page-script complete phase schedules its post at
+  // DEFAULT_COMPLETE_DELAY_MS (100ms), so drainTimers' 5ms is not enough here.
+  await new Promise((resolve) => setTimeout(resolve, 200));
+  const posted = posts[posts.length - 1];
+  assert.equal(posted.request.body, payload, "webRequest-decoded body must survive the page-script merge");
+  assert.equal(posted.response.body, '{"id":158}', "page-script response body must still win");
+});
+
+test("webRequest fills the request body when the page-script observation arrived first", async () => {
+  const posts = [];
+  const controller = createCaptureController({
+    getConfig: async () => ({}),
+    getProfileId: async () => "bprof_fill",
+    postEvent: async (event) => { posts.push(event); }
+  });
+
+  const payload = '{"status":"published"}';
+
+  await controller.handlePageScriptObservation(
+    {
+      eventId: "page-uuid-fill",
+      phase: "complete",
+      request: { startedAt: 100, method: "POST", url: "https://api.example.com/v1/assessments", headers: {}, body: null, bodyAvailable: true, bodyTruncated: false, bodyUnavailableReason: null },
+      response: { completedAt: 150, durationMs: 50, status: 201, headers: {}, body: '{"id":159}', bodyAvailable: true, bodyTruncated: false, bodyUnavailableReason: null },
+      pageUrl: "https://app.example.com/page"
+    },
+    { tab: { id: 32 }, url: "https://app.example.com/page", incognito: false }
+  );
+
+  controller.attachWebRequestObservation(
+    {
+      tabId: 32,
+      requestId: "7004",
+      method: "POST",
+      url: "https://api.example.com/v1/assessments",
+      statusCode: 201,
+      timeStamp: 152,
+      documentUrl: "https://app.example.com/page",
+      initiator: "https://app.example.com",
+      requestBody: rawBody(payload),
+      incognito: false
+    },
+    { partial: false }
+  );
+
+  await drainTimers();
+  const posted = posts[posts.length - 1];
+  assert.equal(posted.request.body, payload, "webRequest body must fill the page-script gap");
+  assert.equal(posted.request.bodyAvailable, true);
+});

@@ -620,3 +620,49 @@ Use this when handing the install to a coding assistant on a target machine:
 > Report the browser used, the exact targetUrls/requestUrls values written,
 > and one captured event from the curl verify step.
 > ```
+
+
+## Capturing dev and staging/preprod together
+
+Capture supports multiple sites at once. Keep both environments in the local
+configuration's `browser` section (preserve the existing iOS/Android settings):
+
+```json
+{
+  "browser": {
+    "enabled": true,
+    "targetUrls": [
+      "https://nexa-lms-dev.joacademy.co/*",
+      "https://stg-school.joacademy.tech/*"
+    ],
+    "requestUrls": [
+      "https://nexa-lms-api-dev.joacademy.co/*",
+      "https://nexa-lms-api-preprod.joacademy.co/*"
+    ]
+  }
+}
+```
+
+Restart the console after editing the file. In the browser you use for the
+frontend, reload the unpacked **Mobile API Console** extension after code
+changes. Open its **Options** page: it combines the console's patterns with
+sites already saved in that browser profile. Click **Save**, accept the site
+permissions, and reload the dev/staging tabs. Saving updates that browser
+profile; restarting the console alone does not grant browser permissions.
+
+Use `/*` so login redirects and all app routes are included, rather than just
+`/dashboard`. Target patterns choose which website pages are captured; API
+patterns grant cross-origin network metadata access. Frontend and API hosts
+both need permission. Different page origins have separate browser sessions;
+select the staging session in the console to see its calls.
+
+The iOS and Android log readers do not filter by API hostname. Switching the
+app to preprod uses the same iOS subsystem/category or Android `API_CURL` tag,
+so both hosts appear in that device's session without changing the logger
+configuration. Search by hostname to distinguish them. Android's app logger
+requires a debug build. iOS capture currently reads a booted simulator, not a
+physical iPhone. The Source/session selector changes the displayed logs;
+available mobile readers and enabled browser capture can record concurrently.
+
+Embedded Codex/Claude browser capture is not supported. Use the normal
+browser extension for frontend capture.

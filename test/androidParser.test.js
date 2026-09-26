@@ -268,3 +268,16 @@ test("parseAndroidCurl extracts method/url/headers/body", () => {
   assert.equal(parsed.headers["Authorization"], "Bearer xyz");
   assert.equal(parsed.body, '{"a":1}');
 });
+
+
+test("Android keeps logging when requests switch between dev and preprod", () => {
+  const parser = new AndroidApiCurlParser({ logTag: "API_CURL" });
+  for (const host of ["nexa-lms-api-dev.joacademy.co", "nexa-lms-api-preprod.joacademy.co"]) {
+    const url = `https://${host}/api/v1/users`;
+    const actions = collect(parser, [logcat("[200] GET v1/users (5ms)"), logcat(`curl -X GET '${url}'`)]);
+    const event = actions.filter((action) => action.type === "upsert").at(-1).event;
+    assert.equal(event.url, url);
+    assert.equal(event.host, host);
+    assert.equal(event.state, "success");
+  }
+});

@@ -73,12 +73,17 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 //   onCompleted       → ["responseHeaders"] (responseHeaders available)
 //
 // onBeforeRequest does NOT accept "requestHeaders" (it would be silently
-// dropped or, in some Chrome versions, log a warning). We don't need its
-// body either, so we leave it without an extraInfoSpec. It still fires and
-// the helper correlates it by tabId+method+URL.
+// dropped or, in some Chrome versions, log a warning). It DOES accept
+// "requestBody", which is the only browser-level source of a request
+// payload — the page-script patch misses bodies whenever a caller passes
+// a Request object to fetch() (the body lives on the input, not on init).
+// Without this spec every webRequest-sourced request body is recorded as
+// "not-readable". "requestBody" needs no extra manifest permission; only
+// blocking specs require webRequestBlocking.
 chrome.webRequest.onBeforeRequest.addListener(
   (details) => controller.attachWebRequestObservation(details, { partial: true }),
-  { urls: ["http://*/*", "https://*/*"] }
+  { urls: ["http://*/*", "https://*/*"] },
+  ["requestBody"]
 );
 
 chrome.webRequest.onSendHeaders.addListener(

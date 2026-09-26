@@ -239,3 +239,30 @@ test("ensureSourceSession is idempotent for the same key", () => {
     assert.equal(a.id, b.id, "ensureSourceSession must not create a new session for the same key");
   });
 });
+
+test("first browser request announces its session before upsert, once per origin", () => {
+  withStore(({ store }) => {
+    const parser = new BrowserEventParser();
+    store.registerUmbrellaSource("browser", { sourceKind: "browser-chromium" });
+    store.selectSource("browser");
+    const notifications = [];
+    store.on("session-start", (payload) => notifications.push({ type: "session", payload }));
+    store.on("upsert", (event) => notifications.push({ type: "event", event }));
+    for (const origin of ["https://nexa-lms-dev.joacademy.co", "https://stg-school.joacademy.tech"]) {
+      const wire = wireEvent({ browserSession: { origin, profileId: "bprof_test", context: "regular" }, eventId: origin });
+      const key = parser.sessionKeyFor(wire);
+      const metadata = { sourceKey: "browser", sourceKind: wire.sourceKind, sourceMetadata: parser.sourceMetadataFor(wire) };
+      const session = store.ensureSourceSession(key, metadata);
+      store.upsertForSourceSession(key, parser.normalizeEvent(wire));
+      assert.equal(store.ensureSourceSession(key, metadata).id, session.id);
+    }
+    assert.deepEqual(notifications.map((entry) => entry.type), ["session", "event", "session", "event"]);
+    for (const index of [0, 2]) {
+      const payload = notifications[index].payload;
+      assert.equal(payload.sourceKey, "browser");
+      assert.equal(payload.session.sourceKey, "browser");
+      assert.equal(payload.session.id, notifications[index + 1].event.sessionId);
+      assert.ok(payload.session.sourceMetadata.browserSession.origin);
+    }
+  });
+});

@@ -20,6 +20,10 @@
   // wr_* eventId with the page-script UUID) instead of producing a
   // duplicate row.
   const WEBREQUEST_MERGE_WINDOW_MS = 50;
+  // Cap for bodies decoded out of webRequest's `requestBody`. Mirrors the
+  // page-script REQUEST_BODY_CAP so a payload does not change size purely
+  // because of which capture path observed it.
+  const WEBREQUEST_BODY_CAP = 1024 * 1024;
 
   function createCaptureController(deps = {}) {
     const getConfig = deps.getConfig || (async () => ({}));
@@ -407,14 +411,28 @@
     // what the caller's code actually sent. Headers are unioned so a
     // webRequest merge (which only contributes request headers) is not
     // blown away by a later page-script observation that omits them.
+    //
+    // Exception: an incoming observation that carries NO body must not
+    // erase a body the other side already decoded. The page-script patch
+    // reads only `init.body`, so `fetch(new Request(url, { body }))`
+    // reaches it as an empty-but-"available" body. Letting that overwrite
+    // the webRequest-decoded payload would silently drop the very body
+    // this path exists to capture.
     function mergeRequest(incoming, existing) {
       if (!incoming) return existing || null;
       if (!existing) return incoming;
-      return {
+      const merged = {
         ...existing,
         ...incoming,
         headers: { ...(existing.headers || {}), ...(incoming.headers || {}) }
       };
+      if (incoming.body == null && existing.body != null) {
+        merged.body = existing.body;
+        merged.bodyAvailable = existing.bodyAvailable;
+        merged.bodyTruncated = existing.bodyTruncated;
+        merged.bodyUnavailableReason = existing.bodyUnavailableReason;
+      }
+      return merged;
     }
 
     // Merge two response sides. Same rule as mergeRequest: incoming
@@ -443,6 +461,25 @@
         next.request = next.request || {};
         next.request.headers = { ...(next.request.headers || {}), ...filterRequestHeaders(details.requestHeaders) };
       }
+      // Adopt a webRequest-decoded payload when the existing entry (usually
+      // the page-script observation) has no body of its own. Only fills a
+      // gap — a body the page script already read always wins, since it
+      // reflects exactly what the caller passed.
+      if (details.requestBody) {
+        const decoded = decodeWebRequestBody(details.requestBody);
+        if (decoded && decoded.body != null) {
+          next.request = next.request || {};
+          if (next.request.body == null) {
+            next.request = {
+              ...next.request,
+              body: decoded.body,
+              bodyAvailable: decoded.bodyAvailable,
+              bodyTruncated: decoded.bodyTruncated,
+              bodyUnavailableReason: decoded.bodyUnavailableReason
+            };
+          }
+        }
+      }
       if (details.statusCode && (!next.response || !next.response.status)) {
         next.response = next.response || {};
         next.response.status = details.statusCode;
@@ -458,7 +495,61 @@
       return next;
     }
 
+    // Decode a request body out of an onBeforeRequest `details.requestBody`.
+    //
+    // Chrome exposes the payload in one of two shapes:
+    //   - `raw`:      an array of { bytes: ArrayBuffer } chunks. This is what
+    //                 JSON / text bodies arrive as.
+    //   - `formData`: a { key: [values] } map for urlencoded and multipart
+    //                 form posts. File parts are not exposed at all.
+    //
+    // Returns null when there is nothing usable, so callers can distinguish
+    // "no body on this request" from "a body we failed to read".
+    function decodeWebRequestBody(requestBody) {
+      if (!requestBody) return null;
+
+      if (requestBody.raw && requestBody.raw.length) {
+        try {
+          const decoder = new TextDecoder("utf-8", { fatal: false });
+          let text = "";
+          for (const chunk of requestBody.raw) {
+            if (chunk && chunk.bytes) text += decoder.decode(chunk.bytes, { stream: true });
+          }
+          text += decoder.decode();
+          if (!text) return null;
+          return truncateWebRequestBody(text);
+        } catch {
+          return { body: null, bodyAvailable: false, bodyTruncated: false, bodyUnavailableReason: "not-readable" };
+        }
+      }
+
+      if (requestBody.formData) {
+        try {
+          return truncateWebRequestBody(JSON.stringify(requestBody.formData));
+        } catch {
+          return { body: null, bodyAvailable: false, bodyTruncated: false, bodyUnavailableReason: "not-readable" };
+        }
+      }
+
+      // `requestBody` present but neither raw nor formData means Chrome saw a
+      // body it will not surface (e.g. a pure file upload).
+      return { body: null, bodyAvailable: false, bodyTruncated: false, bodyUnavailableReason: "binary" };
+    }
+
+    function truncateWebRequestBody(text) {
+      if (text.length > WEBREQUEST_BODY_CAP) {
+        return {
+          body: text.slice(0, WEBREQUEST_BODY_CAP),
+          bodyAvailable: true,
+          bodyTruncated: true,
+          bodyUnavailableReason: null
+        };
+      }
+      return { body: text, bodyAvailable: true, bodyTruncated: false, bodyUnavailableReason: null };
+    }
+
     function buildWebRequestWire(details, origin) {
+      const decoded = decodeWebRequestBody(details.requestBody);
       return {
         v: 1,
         sourceKind: "browser-chromium",
@@ -472,10 +563,10 @@
           method: (details.method || "GET").toUpperCase(),
           url: details.url || "",
           headers: filterRequestHeaders(details.requestHeaders),
-          body: null,
-          bodyAvailable: false,
-          bodyTruncated: false,
-          bodyUnavailableReason: "not-readable"
+          body: decoded ? decoded.body : null,
+          bodyAvailable: decoded ? decoded.bodyAvailable : false,
+          bodyTruncated: decoded ? decoded.bodyTruncated : false,
+          bodyUnavailableReason: decoded ? decoded.bodyUnavailableReason : "not-readable"
         },
         response: {
           completedAt: details.timeStamp || null,

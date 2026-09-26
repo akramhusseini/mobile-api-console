@@ -111,6 +111,10 @@ class SqliteStorage {
       updated_at: now
     };
 
+    // A request-phase ("pending") upsert that arrives after the call already
+    // finished — a retry or out-of-order delivery — must not downgrade the
+    // finished row's state, errors, raw lines, or capture metadata.
+    const LATE_PENDING = "excluded.state = 'pending' AND events.state IS NOT NULL AND events.state <> 'pending'";
     this.db.prepare(`
       INSERT INTO events (
         session_id, client_event_id, kind, method, url, host, path,
@@ -130,14 +134,14 @@ class SqliteStorage {
         host = COALESCE(excluded.host, events.host),
         path = COALESCE(excluded.path, events.path),
         status_code = COALESCE(excluded.status_code, events.status_code),
-        state = COALESCE(excluded.state, events.state),
+        state = CASE WHEN ${LATE_PENDING} THEN events.state ELSE COALESCE(excluded.state, events.state) END,
         finished_at = COALESCE(excluded.finished_at, events.finished_at),
         request_json = COALESCE(excluded.request_json, events.request_json),
         response_json = COALESCE(excluded.response_json, events.response_json),
         curl = COALESCE(excluded.curl, events.curl),
-        errors_json = COALESCE(excluded.errors_json, events.errors_json),
-        raw_json = COALESCE(excluded.raw_json, events.raw_json),
-        meta_json = COALESCE(excluded.meta_json, events.meta_json),
+        errors_json = CASE WHEN ${LATE_PENDING} THEN events.errors_json ELSE COALESCE(excluded.errors_json, events.errors_json) END,
+        raw_json = CASE WHEN ${LATE_PENDING} THEN events.raw_json ELSE COALESCE(excluded.raw_json, events.raw_json) END,
+        meta_json = CASE WHEN ${LATE_PENDING} THEN events.meta_json ELSE COALESCE(excluded.meta_json, events.meta_json) END,
         updated_at = excluded.updated_at
     `).run(params);
 

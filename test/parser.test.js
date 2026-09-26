@@ -294,3 +294,19 @@ test("a push event never captures the next HTTP response", () => {
   assert.notEqual(push.id, http.id);
 });
 
+
+
+test("iOS keeps logging when requests switch between dev and preprod", () => {
+  const parser = new MobileNetworkParser({ processName: "LMSMobile" });
+  const urls = ["https://nexa-lms-api-dev.joacademy.co/api/v1/users", "https://nexa-lms-api-preprod.joacademy.co/api/v1/users"];
+  for (const url of urls) {
+    const actions = collect(parser, [
+      "===== REQUEST =====", `URL: ${url}`, "Method: GET", "====================",
+      "===== RESPONSE =====", "Status Code: 200", `URL: ${url}`, "Body:", '{"data":[]}', "======================"
+    ]);
+    const event = actions.filter((action) => action.type === "upsert").at(-1).event;
+    assert.equal(event.url, url);
+    assert.equal(event.host, new URL(url).host);
+    assert.equal(event.state, "success");
+  }
+});

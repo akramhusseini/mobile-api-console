@@ -45,16 +45,7 @@ async function loadConfig() {
 
 async function configWithConsoleDefaults(config) {
   const defaults = await fetchConsoleDefaults(config.consoleHost || DEFAULT_CONFIG.consoleHost);
-  if (!defaults || !defaults.browser) return config;
-  const next = { ...config };
-  if (defaults.consoleHost) next.consoleHost = defaults.consoleHost;
-  if (Array.isArray(defaults.browser.targetUrls) && defaults.browser.targetUrls.length > 0) {
-    next.targetUrls = defaults.browser.targetUrls;
-  }
-  if (Array.isArray(defaults.browser.requestUrls)) {
-    next.requestUrls = defaults.browser.requestUrls;
-  }
-  return next;
+  return optionsApi.mergeConsoleDefaults(config, defaults);
 }
 
 async function fetchConsoleDefaults(consoleHost) {
